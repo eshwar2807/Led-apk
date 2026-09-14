@@ -21,6 +21,13 @@ Built for the Pixel 11 Pro family (targets Android API 37, runs on Android 8.0+)
 **Colour**
 - HSV colour wheel: angle picks the hue, distance from the centre picks saturation,
   plus a separate brightness slider and nine one-tap presets.
+- **Output** slider, because saturated colour is dim: a fully saturated hue drives
+  only one or two subpixels, so pure blue puts out a fraction of what white does at
+  the same screen brightness. Output mixes white back in — the hue survives, the
+  light gets far stronger. **Max output** solves for the mix that brings the current
+  hue up to 85% of white's luminance; **Pure hue** goes back to the saturated colour.
+- Warns when Extra dim or Night Light is capping the screen, since no in-app control
+  can make up for those.
 - Live hex / HSV readout.
 - **Full-screen lamp**: the chosen colour fills the display at maximum brightness in
   immersive mode. Tap to hide the controls, double-tap or press Back to exit.

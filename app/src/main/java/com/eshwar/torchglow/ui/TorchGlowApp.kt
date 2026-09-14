@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -96,6 +97,9 @@ private const val CYCLE_MS = 2400f
 
 private const val SHIZUKU_REQUEST_CODE = 4711
 
+/** Enough white mixed in that a colour reads as a usable light, not a mood lamp. */
+private const val DEFAULT_BOOST = 0.4f
+
 @Composable
 fun TorchGlowApp(controller: TorchController) {
     var mode by remember { mutableStateOf(TorchMode.OFF) }
@@ -106,8 +110,13 @@ fun TorchGlowApp(controller: TorchController) {
     var saturation by rememberSaveable { mutableFloatStateOf(1f) }
     var brightness by rememberSaveable { mutableFloatStateOf(1f) }
     var lampOpen by rememberSaveable { mutableStateOf(false) }
+    var boost by rememberSaveable { mutableFloatStateOf(DEFAULT_BOOST) }
 
-    val color = Color.hsv(hue, saturation, brightness)
+    /** What the wheel says — the pure hue, shown on the wheel and in the readout. */
+    val pureColor = Color.hsv(hue, saturation, brightness)
+
+    /** What the lamp and the ring actually emit, with white mixed back in. */
+    val color = boosted(pureColor, boost)
 
     // --- Rear RGB ring (HiLight on the Pixel 11 Pro) ---------------------------
     val ring = rememberRingController()
@@ -235,8 +244,13 @@ fun TorchGlowApp(controller: TorchController) {
                 saturation = saturation,
                 brightness = brightness,
                 color = color,
+                boost = boost,
                 onColorChange = { h, s -> hue = h; saturation = s },
                 onBrightnessChange = { brightness = it },
+                onBoostChange = { boost = it },
+                onMaxOutput = {
+                    boost = boostToReachLuminance(pureColor, MAX_OUTPUT_LUMINANCE)
+                },
                 onOpenLamp = { lampOpen = true },
             )
 
@@ -508,10 +522,15 @@ private fun ColorCard(
     saturation: Float,
     brightness: Float,
     color: Color,
+    boost: Float,
     onColorChange: (Float, Float) -> Unit,
     onBrightnessChange: (Float) -> Unit,
+    onBoostChange: (Float) -> Unit,
+    onMaxOutput: () -> Unit,
     onOpenLamp: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val warnings = remember(context) { dimmingWarnings(context) }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(24.dp),
@@ -540,6 +559,43 @@ private fun ColorCard(
                 valueRange = 0.05f..1f,
                 onValueChange = onBrightnessChange,
             )
+
+            LabelledSlider(
+                label = "Output",
+                valueText = "${(boost * 100).roundToInt()}% white",
+                value = boost,
+                valueRange = 0f..1f,
+                onValueChange = onBoostChange,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilledTonalButton(onClick = onMaxOutput, modifier = Modifier.weight(1f)) {
+                    Text("Max output")
+                }
+                FilledTonalButton(onClick = { onBoostChange(0f) }, modifier = Modifier.weight(1f)) {
+                    Text("Pure hue")
+                }
+            }
+
+            Text(
+                text = "A saturated colour only lights one subpixel, so it can never reach " +
+                    "white's output. Output mixes white back in — the hue stays, the light " +
+                    "gets far stronger.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            warnings.forEach { warning ->
+                Text(
+                    text = warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
