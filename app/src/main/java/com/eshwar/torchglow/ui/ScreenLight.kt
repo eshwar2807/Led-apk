@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -62,6 +63,7 @@ fun ScreenLight(
     val activity = LocalActivity.current
     var hdrGain by remember { mutableFloatStateOf(1f) }
     var overrideApplied by remember { mutableStateOf(false) }
+    var diagnostics by remember { mutableStateOf("") }
 
     DisposableEffect(activity) {
         val window = activity?.window
@@ -80,7 +82,13 @@ fun ScreenLight(
             window?.attributes?.screenBrightness == WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
 
         // Ask for everything the panel will give above SDR white.
-        val display = view.display
+        // The view's display is null until it is attached, which is exactly when this
+        // effect runs, so prefer the activity's.
+        val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            activity?.display ?: view.display
+        } else {
+            view.display
+        }
         var hdrListener: java.util.function.Consumer<android.view.Display>? = null
         // getHighestHdrSdrRatio() is API 36; the headroom request itself is 35, but
         // asking for less than the panel's maximum would defeat the point.
@@ -100,6 +108,26 @@ fun ScreenLight(
                 hdrListener = listener
                 display.registerHdrSdrRatioChangedListener({ it.run() }, listener)
             }
+        }
+
+        // Say which stage failed, rather than leaving a dull lamp unexplained.
+        diagnostics = buildString {
+            append("bright=")
+            append(
+                if (overrideApplied) {
+                    "max"
+                } else {
+                    "FAILED(${window?.attributes?.screenBrightness})"
+                },
+            )
+            append(" sdk=").append(Build.VERSION.SDK_INT)
+            append(" display=").append(if (display == null) "null" else "ok")
+            if (display != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+                append(" isHdr=").append(display.isHdr)
+                append(" max=").append("%.2f".format(display.highestHdrSdrRatio))
+                append(" now=").append("%.2f".format(display.hdrSdrRatio))
+            }
+            append(" mode=").append(window?.colorMode)
         }
 
         controller?.hide(WindowInsetsCompat.Type.systemBars())
@@ -165,13 +193,16 @@ fun ScreenLight(
                     color = contrast.copy(alpha = 0.75f),
                 )
                 Text(
-                    text = buildString {
-                        append(if (overrideApplied) "Brightness override: on" else "Brightness override: FAILED")
-                        append(" · HDR headroom: ")
-                        append(if (hdrGain > 1f) "%.1fx".format(hdrGain) else "none")
-                    },
-                    color = contrast.copy(alpha = 0.6f),
+                    text = "HDR headroom in use: " +
+                        if (hdrGain > 1f) "%.2fx".format(hdrGain) else "none",
+                    color = contrast.copy(alpha = 0.75f),
                     fontFamily = FontFamily.Monospace,
+                )
+                Text(
+                    text = diagnostics,
+                    color = contrast.copy(alpha = 0.55f),
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = TextAlign.Center,
                 )
                 FilledTonalButton(onClick = onExit) {
                     Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))

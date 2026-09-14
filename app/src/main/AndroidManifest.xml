@@ -30,7 +30,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|colorMode|density|smallestScreenSize"
             android:theme="@style/Theme.TorchGlow">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
