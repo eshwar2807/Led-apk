@@ -1,5 +1,8 @@
 package com.eshwar.torchglow.ui
 
+import android.content.pm.ActivityInfo
+import android.os.Build
+import android.view.Window
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -21,21 +24,34 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 /**
- * Full-screen coloured lamp. The display is the only part of the phone that can
- * actually emit a chosen colour, so this is where the wheel's colour lands.
+ * Full-screen coloured lamp.
+ *
+ * Two things make this brighter than a plain coloured Activity:
+ *
+ *  - The window takes the screen brightness override to maximum, so the lamp does
+ *    not sit at whatever the system slider happened to be on.
+ *  - Where the display supports it, the window asks for an HDR colour mode and the
+ *    panel's full HDR headroom, and the colour is painted in extended sRGB with
+ *    components above 1.0. SDR white is the *reference* white, not the panel's
+ *    limit: HDR content is allowed past it, which is the only way a screen goes
+ *    brighter than "full white" ([hdrGain] is how much further, typically 2-5x).
  */
 @Composable
 fun ScreenLight(
@@ -44,42 +60,90 @@ fun ScreenLight(
 ) {
     val view = LocalView.current
     val activity = LocalActivity.current
+    var hdrGain by remember { mutableFloatStateOf(1f) }
+    var overrideApplied by remember { mutableStateOf(false) }
 
-    // Maximum screen brightness + immersive full screen while the lamp is up.
     DisposableEffect(activity) {
         val window = activity?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, view) }
-        val previousBrightness = window?.attributes?.screenBrightness
-        window?.let {
-            it.attributes = it.attributes.apply { screenBrightness = 1f }
-            it.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val previousColorMode = window?.colorMode
+        val previousHeadroom =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                window?.desiredHdrHeadroom
+            } else {
+                null
+            }
+
+        window?.applyBrightnessOverride(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL)
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        overrideApplied =
+            window?.attributes?.screenBrightness == WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+
+        // Ask for everything the panel will give above SDR white.
+        val display = view.display
+        var hdrListener: java.util.function.Consumer<android.view.Display>? = null
+        // getHighestHdrSdrRatio() is API 36; the headroom request itself is 35, but
+        // asking for less than the panel's maximum would defeat the point.
+        if (window != null && display != null &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && display.isHdr
+        ) {
+            window.colorMode = ActivityInfo.COLOR_MODE_HDR
+            window.desiredHdrHeadroom = display.highestHdrSdrRatio
+            hdrGain = display.hdrSdrRatio.coerceAtLeast(1f)
+
+            if (display.isHdrSdrRatioAvailable) {
+                // The panel ramps its headroom rather than switching instantly, so
+                // follow it instead of sampling once and under-driving the colour.
+                val listener = java.util.function.Consumer<android.view.Display> { updated ->
+                    hdrGain = updated.hdrSdrRatio.coerceAtLeast(1f)
+                }
+                hdrListener = listener
+                display.registerHdrSdrRatioChangedListener({ it.run() }, listener)
+            }
         }
-        controller?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
         controller?.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         onDispose {
-            window?.let {
-                it.attributes = it.attributes.apply {
-                    screenBrightness = previousBrightness
-                        ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                }
-                it.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                hdrListener?.let { display?.unregisterHdrSdrRatioChangedListener(it) }
             }
-            controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            window?.applyBrightnessOverride(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.let { target ->
+                previousColorMode?.let { target.colorMode = it }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    previousHeadroom?.let { target.desiredHdrHeadroom = it }
+                }
+            }
+            controller?.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
     BackHandler(onBack = onExit)
 
     var controlsVisible by remember { mutableStateOf(true) }
-    // Keep the exit affordance readable on both pale and dark colours.
     val contrast = if (color.luminance() > 0.45f) Color.Black else Color.White
+
+    // Components above 1.0 in extended sRGB are what carry the colour past SDR white.
+    val emitted = if (hdrGain > 1f) {
+        Color(
+            red = color.red * hdrGain,
+            green = color.green * hdrGain,
+            blue = color.blue * hdrGain,
+            alpha = 1f,
+            colorSpace = ColorSpaces.ExtendedSrgb,
+        )
+    } else {
+        color
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(color)
+            .background(emitted)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { controlsVisible = !controlsVisible },
@@ -100,11 +164,32 @@ fun ScreenLight(
                     text = "Tap to hide controls · double-tap or Back to exit",
                     color = contrast.copy(alpha = 0.75f),
                 )
+                Text(
+                    text = buildString {
+                        append(if (overrideApplied) "Brightness override: on" else "Brightness override: FAILED")
+                        append(" · HDR headroom: ")
+                        append(if (hdrGain > 1f) "%.1fx".format(hdrGain) else "none")
+                    },
+                    color = contrast.copy(alpha = 0.6f),
+                    fontFamily = FontFamily.Monospace,
+                )
                 FilledTonalButton(onClick = onExit) {
                     Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text(text = "  Close lamp")
                 }
             }
         }
+    }
+}
+
+/**
+ * Sets the window's brightness override on a fresh copy of the layout params.
+ * Mutating the instance [Window.getAttributes] hands back and passing it straight
+ * back is the usual idiom, but copying makes the change unambiguous.
+ */
+private fun Window.applyBrightnessOverride(value: Float) {
+    attributes = WindowManager.LayoutParams().apply {
+        copyFrom(this@applyBrightnessOverride.attributes)
+        screenBrightness = value
     }
 }

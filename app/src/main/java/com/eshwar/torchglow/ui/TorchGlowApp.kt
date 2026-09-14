@@ -584,7 +584,9 @@ private fun ColorCard(
             Text(
                 text = "A saturated colour only lights one subpixel, so it can never reach " +
                     "white's output. Output mixes white back in — the hue stays, the light " +
-                    "gets far stronger.",
+                    "gets far stronger. Judge it in the full-screen lamp: this swatch is " +
+                    "painted at the app's brightness, and only the lamp drives the panel " +
+                    "to maximum and into HDR headroom.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
