@@ -48,5 +48,10 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
 
+    // Lets the phone's owner hand the app shell-level access to the lights
+    // service, which is the only way a sideloaded app can reach the LED ring.
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

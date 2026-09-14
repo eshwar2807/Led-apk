@@ -1,10 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- setTorchMode() needs no runtime permission, but declaring the features
          keeps the listing honest and lets the Play Store filter correctly. -->
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Guards the lights service that drives the rear RGB ring (HiLight on the
+         Pixel 11 Pro). It is signature|privileged, so an ordinary install will not
+         be granted it; the app falls back to relaying through Shizuku, which the
+         phone's owner starts and authorises themselves. -->
+    <!-- Declared deliberately: ordinary installs are simply not granted it and the
+         app falls back to the Shizuku relay, while a privileged or platform-signed
+         build of this same APK gets the ring with no relay at all. -->
+    <uses-permission
+        android:name="android.permission.CONTROL_DEVICE_LIGHTS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
     <application
         android:allowBackup="true"
@@ -24,6 +37,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     </application>
 
 </manifest>

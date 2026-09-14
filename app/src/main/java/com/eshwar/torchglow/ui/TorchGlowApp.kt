@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -30,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -51,6 +53,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import com.eshwar.torchglow.hilight.RingAccess
+import com.eshwar.torchglow.hilight.RingMode
+import com.eshwar.torchglow.hilight.rememberRingController
+import com.eshwar.torchglow.hilight.ringColors
 import com.eshwar.torchglow.torch.TorchController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -81,6 +89,11 @@ private val SOS_PATTERN = listOf(
 )
 private const val SOS_UNIT_MS = 180L
 
+/** One full turn of a ring animation. */
+private const val CYCLE_MS = 2400f
+
+private const val SHIZUKU_REQUEST_CODE = 4711
+
 @Composable
 fun TorchGlowApp(controller: TorchController) {
     var mode by remember { mutableStateOf(TorchMode.OFF) }
@@ -93,6 +106,43 @@ fun TorchGlowApp(controller: TorchController) {
     var lampOpen by rememberSaveable { mutableStateOf(false) }
 
     val color = Color.hsv(hue, saturation, brightness)
+
+    // --- Rear RGB ring (HiLight on the Pixel 11 Pro) ---------------------------
+    val ring = rememberRingController()
+    var ringOn by rememberSaveable { mutableStateOf(false) }
+    var ringMode by rememberSaveable { mutableStateOf(RingMode.SOLID) }
+
+    // Re-check on every resume: the owner may have started or authorised Shizuku
+    // while the app was in the background.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { ring.refresh() }
+
+    LaunchedEffect(ringOn, ringMode, color, ring.access, ring.ledCount) {
+        val leds = ring.ledCount
+        if (!ringOn || !ring.access.isReady || leds == 0) {
+            ring.clear()
+            return@LaunchedEffect
+        }
+        ring.open()
+
+        if (ringMode == RingMode.SOLID) {
+            ring.apply(IntArray(leds) { color.toArgb() })
+            return@LaunchedEffect
+        }
+        val frameMs = ring.frameMillis
+        var phase = 0f
+        while (coroutineContext.isActive) {
+            ring.apply(ringColors(ringMode, color, leds, phase))
+            delay(frameMs)
+            phase = (phase + frameMs / CYCLE_MS) % 1f
+        }
+    }
+
+    DisposableEffect(ring) {
+        onDispose {
+            ring.clear()
+            ring.close()
+        }
+    }
 
     // Drives the flash unit. Restarting on any of these keys is cheap and keeps
     // the hardware in step with whatever the UI currently shows.
@@ -164,6 +214,17 @@ fun TorchGlowApp(controller: TorchController) {
                 onStrobeHzChange = { strobeHz = it },
             )
 
+            HiLightCard(
+                access = ring.access,
+                ledCount = ring.ledCount,
+                enabled = ringOn,
+                onEnabledChange = { ringOn = it },
+                mode = ringMode,
+                onModeChange = { ringMode = it },
+                color = color,
+                onGrantShizuku = { ring.requestShizukuPermission(SHIZUKU_REQUEST_CODE) },
+            )
+
             ColorCard(
                 hue = hue,
                 saturation = saturation,
@@ -175,9 +236,10 @@ fun TorchGlowApp(controller: TorchController) {
             )
 
             Text(
-                text = "The flash LED itself is a white-only emitter — no phone can tint it. " +
-                    "Colours from the wheel drive the full-screen lamp, which is what " +
-                    "actually throws coloured light.",
+                text = "One colour, three outputs: the rear RGB ring, the full-screen lamp, " +
+                    "and the wheel itself. The main flash LED stays white — that one is a " +
+                    "fixed-colour emitter on every phone — so the wheel drives the ring and " +
+                    "the screen.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -281,6 +343,114 @@ private fun TorchCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HiLightCard(
+    access: RingAccess,
+    ledCount: Int,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    mode: RingMode,
+    onModeChange: (RingMode) -> Unit,
+    color: Color,
+    onGrantShizuku: () -> Unit,
+) {
+    val ready = access.isReady
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "Rear LED ring", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = when (access) {
+                            RingAccess.DIRECT ->
+                                "$ledCount RGB LEDs ready"
+                            RingAccess.SHIZUKU ->
+                                "$ledCount RGB LEDs ready via Shizuku"
+                            RingAccess.SHIZUKU_NEEDS_PERMISSION ->
+                                "Shizuku is running — authorise Torch Glow to use the ring"
+                            RingAccess.SHIZUKU_UNAVAILABLE ->
+                                "Needs Shizuku: Android reserves the lights service for " +
+                                    "privileged apps"
+                            RingAccess.NO_RING ->
+                                "No app-controllable RGB light on this device"
+                            RingAccess.UNSUPPORTED_OS ->
+                                "Needs Android 17 or newer"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = enabled && ready, enabled = ready, onCheckedChange = onEnabledChange)
+            }
+
+            if (ready) {
+                // Preview of what the ring is showing, in ring order.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val preview = ringColors(mode, color, ledCount.coerceAtLeast(1), 0f)
+                    preview.forEach { argb ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(20.dp)
+                                .clip(CircleShape)
+                                .background(if (enabled) Color(argb) else Color(0xFF2A2637)),
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    RingMode.entries.forEach { option ->
+                        FilterChip(
+                            selected = mode == option,
+                            onClick = { onModeChange(option) },
+                            label = { Text(option.label) },
+                        )
+                    }
+                }
+            }
+
+            when (access) {
+                RingAccess.SHIZUKU_NEEDS_PERMISSION -> {
+                    Button(onClick = onGrantShizuku, modifier = Modifier.fillMaxWidth()) {
+                        Text("Authorise via Shizuku")
+                    }
+                }
+
+                RingAccess.SHIZUKU_UNAVAILABLE -> {
+                    Text(
+                        text = "CONTROL_DEVICE_LIGHTS is a signature|privileged permission, so " +
+                            "no sideloaded app can hold it — pm grant will not work either. " +
+                            "Install Shizuku, start it over ADB or wireless debugging, then " +
+                            "reopen this screen and authorise Torch Glow. Shizuku must be " +
+                            "restarted after each reboot.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                else -> Unit
             }
         }
     }
