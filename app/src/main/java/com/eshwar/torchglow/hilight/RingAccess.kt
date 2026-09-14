@@ -13,6 +13,12 @@ enum class RingAccess {
     /** No RGB-capable, app-controllable light on this device. */
     NO_RING,
 
+    /**
+     * Shizuku authorised the app, but the call to the lights service failed —
+     * a different problem from the device having no ring, so it reads differently.
+     */
+    RELAY_FAILED,
+
     /** The app holds CONTROL_DEVICE_LIGHTS itself. */
     DIRECT,
 

@@ -33,6 +33,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -223,6 +225,9 @@ fun TorchGlowApp(controller: TorchController) {
                 onModeChange = { ringMode = it },
                 color = color,
                 onGrantShizuku = { ring.requestShizukuPermission(SHIZUKU_REQUEST_CODE) },
+                onRecheck = { ring.refresh() },
+                lastError = ring.lastError,
+                report = ring.report,
             )
 
             ColorCard(
@@ -358,6 +363,9 @@ private fun HiLightCard(
     onModeChange: (RingMode) -> Unit,
     color: Color,
     onGrantShizuku: () -> Unit,
+    onRecheck: () -> Unit,
+    lastError: String?,
+    report: List<String>,
 ) {
     val ready = access.isReady
     Card(
@@ -388,7 +396,11 @@ private fun HiLightCard(
                                 "Needs Shizuku: Android reserves the lights service for " +
                                     "privileged apps"
                             RingAccess.NO_RING ->
-                                "No app-controllable RGB light on this device"
+                                "Shizuku is connected, but the lights service listed " +
+                                    "no light this app may paint"
+                            RingAccess.RELAY_FAILED ->
+                                "Shizuku is connected, but the call to the lights " +
+                                    "service failed"
                             RingAccess.UNSUPPORTED_OS ->
                                 "Needs Android 17 or newer"
                         },
@@ -451,6 +463,40 @@ private fun HiLightCard(
                 }
 
                 else -> Unit
+            }
+
+            // Whatever the lights service actually said. When the ring does not come
+            // up, this is the part worth screenshotting.
+            if (lastError != null || report.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Diagnostics",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    lastError?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    report.forEach { line ->
+                        Text(
+                            text = line,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            if (access != RingAccess.UNSUPPORTED_OS) {
+                TextButton(onClick = onRecheck, modifier = Modifier.align(Alignment.End)) {
+                    Text("Re-check")
+                }
             }
         }
     }

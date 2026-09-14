@@ -37,12 +37,22 @@ class RingController(context: Context) {
     var frameMillis: Long = 33L
         private set
 
+    /** Last failure from the lights service, shown in the card's diagnostics. */
+    var lastError: String? by mutableStateOf(null)
+        private set
+
+    /** What the lights service reported, one line per light, before filtering. */
+    var report: List<String> by mutableStateOf(emptyList())
+        private set
+
     fun refresh() {
         val target = ring ?: return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.CINNAMON_BUN) return
         access = target.refresh()
         ledCount = target.ledCount
         frameMillis = target.minUpdatePeriodMillis.coerceAtLeast(33L)
+        lastError = target.lastError
+        report = target.report
     }
 
     fun open() {

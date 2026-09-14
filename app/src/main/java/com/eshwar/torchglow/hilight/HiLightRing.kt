@@ -99,7 +99,7 @@ class HiLightRing(private val context: Context) {
 
             override fun lights(): List<Light> = callForResult(TRANSACTION_GET_LIGHTS) { reply ->
                 reply.createTypedArrayList(Light.CREATOR).orEmpty()
-            } ?: emptyList()
+            }
 
             override fun open() {
                 if (opened) return
@@ -129,12 +129,17 @@ class HiLightRing(private val context: Context) {
                 opened = false
             }
 
+            /**
+             * Failures are thrown rather than swallowed: [HiLightRing] catches them in
+             * one place and keeps the message, so the UI can say what actually broke
+             * instead of quietly reporting an empty ring.
+             */
             private fun <T> callForResult(
                 code: Int,
                 write: (Parcel) -> Unit = {},
                 read: (Parcel) -> T,
-            ): T? {
-                val target = binder ?: return null
+            ): T {
+                val target = binder ?: error("Shizuku did not hand back the lights service")
                 val data = Parcel.obtain()
                 val reply = Parcel.obtain()
                 return try {
@@ -143,9 +148,6 @@ class HiLightRing(private val context: Context) {
                     target.transact(code, data, reply, 0)
                     reply.readException()
                     read(reply)
-                } catch (e: Exception) {
-                    Log.w(TAG, "lights transaction $code failed", e)
-                    null
                 } finally {
                     reply.recycle()
                     data.recycle()
@@ -181,6 +183,18 @@ class HiLightRing(private val context: Context) {
     var access: RingAccess = RingAccess.UNSUPPORTED_OS
         private set
 
+    /** Last failure from the lights service, for the diagnostics line in the UI. */
+    var lastError: String? = null
+        private set
+
+    /**
+     * One line per light the service reported, before filtering. The ring's exact
+     * type and capability flags are device-specific, so when nothing matches this
+     * says what the device actually offered.
+     */
+    var report: List<String> = emptyList()
+        private set
+
     val ledCount: Int get() = lights.size
 
     /** Fastest safe update interval for animation, from what the HAL reports. */
@@ -192,12 +206,17 @@ class HiLightRing(private val context: Context) {
      * the owner may install or authorise Shizuku while the app is open.
      */
     fun refresh(): RingAccess {
-        // 1. Straight SDK path.
+        lastError = null
+
+        // 1. Straight SDK path. A plain install is refused here, which is expected
+        //    and not worth reporting — the Shizuku attempt below is the real answer.
         val framework = Backend.Framework(context)
-        val frameworkRing = runCatching { framework.lights() }.getOrElse { emptyList() }.filterRing()
+        val frameworkLights = runCatching { framework.lights() }.getOrElse { emptyList() }
+        val frameworkRing = frameworkLights.filterRing()
         if (frameworkRing.isNotEmpty()) {
             backend = framework
             lights = frameworkRing
+            report = frameworkLights.map { it.describe() }
             access = RingAccess.DIRECT
             return access
         }
@@ -209,7 +228,23 @@ class HiLightRing(private val context: Context) {
             return access
         }
         val shizuku = Backend.Shizuku()
-        val ring = runCatching { shizuku.lights() }.getOrElse { emptyList() }.filterRing()
+        val available = runCatching { shizuku.lights() }
+            .onFailure {
+                Log.w(TAG, "Could not list lights through Shizuku", it)
+                lastError = it.describe()
+            }
+            .getOrNull()
+
+        if (available == null) {
+            // The relay itself failed — say so rather than claiming the device has
+            // no ring, which is a different problem with a different fix.
+            report = emptyList()
+            access = RingAccess.RELAY_FAILED
+            return access
+        }
+
+        report = available.map { it.describe() }
+        val ring = available.filterRing()
         access = if (ring.isEmpty()) {
             RingAccess.NO_RING
         } else {
@@ -222,7 +257,10 @@ class HiLightRing(private val context: Context) {
 
     fun open() {
         runCatching { backend?.open() }
-            .onFailure { Log.w(TAG, "Could not open a lights session", it) }
+            .onFailure {
+                Log.w(TAG, "Could not open a lights session", it)
+                lastError = it.describe()
+            }
     }
 
     /** Paints [colors] onto the ring, in the order [lights] reports. */
@@ -234,7 +272,10 @@ class HiLightRing(private val context: Context) {
     /** Paints one colour per LED; a null entry releases that LED. */
     fun apply(colors: Map<Light, Int?>) {
         runCatching { backend?.apply(colors) }
-            .onFailure { Log.w(TAG, "Failed to apply ring colours", it) }
+            .onFailure {
+                Log.w(TAG, "Failed to apply ring colours", it)
+                lastError = it.describe()
+            }
     }
 
     fun clear() = apply(lights.associateWith { null })
@@ -244,12 +285,31 @@ class HiLightRing(private val context: Context) {
     }
 
     /**
-     * Keep the lights an app may paint: RGB-capable, and not one of the dedicated
-     * indicators (microphone, player id, keyboard backlight, input device).
+     * Keep the lights an app may paint: not one of the dedicated indicators
+     * (microphone, player id, keyboard backlight, input device).
+     *
+     * Colour-capable lights are preferred, but a HAL that under-reports its
+     * capabilities is a real possibility, so rather than show an empty ring we fall
+     * back to whatever non-reserved lights the service offered and let the colours
+     * speak for themselves.
      */
-    private fun List<Light>.filterRing(): List<Light> = this
-        .filter { it.hasRgbControl() && it.type !in RESERVED_TYPES }
-        .sortedBy { it.ordinal }
+    private fun List<Light>.filterRing(): List<Light> {
+        val candidates = filter { it.type !in RESERVED_TYPES }.sortedBy { it.ordinal }
+        return candidates.filter { it.hasRgbControl() }.ifEmpty { candidates }
+    }
+
+    private fun Light.describe(): String = buildString {
+        append("id=").append(id)
+        append(" type=").append(type)
+        append(" ord=").append(ordinal)
+        append(if (hasRgbControl()) " rgb" else " no-rgb")
+        if (hasBrightnessControl()) append(" brightness")
+        if (hasAnimationControl()) append(" animation")
+        append(" min=").append(minUpdatePeriodMillis).append("ms")
+    }
+
+    private fun Throwable.describe(): String =
+        "${this::class.java.simpleName}: ${message ?: "no detail"}"
 
     private fun shizukuState(): RingAccess = try {
         when {
