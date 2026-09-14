@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.eshwar.torchglow.BuildConfig
 import com.eshwar.torchglow.hilight.RingAccess
 import com.eshwar.torchglow.hilight.RingMode
 import com.eshwar.torchglow.hilight.rememberRingController
@@ -194,7 +195,11 @@ fun TorchGlowApp(controller: TorchController) {
     }
 
     if (lampOpen) {
-        ScreenLight(color = color, onExit = { lampOpen = false })
+        ScreenLight(
+            color = color,
+            pureColor = pureColor,
+            onExit = { lampOpen = false },
+        )
         return
     }
 
@@ -207,11 +212,23 @@ fun TorchGlowApp(controller: TorchController) {
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Text(
-                text = "Torch Glow",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Torch Glow",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                // Which build this is, so a test result can be tied to a version.
+                Text(
+                    text = "v${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             TorchCard(
                 available = controller.isAvailable,

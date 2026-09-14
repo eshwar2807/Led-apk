@@ -1,6 +1,7 @@
 package com.eshwar.torchglow.ui
 
 import android.content.pm.ActivityInfo
+import com.eshwar.torchglow.BuildConfig
 import android.os.Build
 import android.view.Window
 import android.view.WindowManager
@@ -12,6 +13,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -57,6 +60,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 @Composable
 fun ScreenLight(
     color: Color,
+    pureColor: Color,
     onExit: () -> Unit,
 ) {
     val view = LocalView.current
@@ -112,6 +116,7 @@ fun ScreenLight(
 
         // Say which stage failed, rather than leaving a dull lamp unexplained.
         diagnostics = buildString {
+            append("v").append(BuildConfig.VERSION_NAME).append(" ")
             append("bright=")
             append(
                 if (overrideApplied) {
@@ -153,6 +158,7 @@ fun ScreenLight(
     BackHandler(onBack = onExit)
 
     var controlsVisible by remember { mutableStateOf(true) }
+    var compareMode by remember { mutableStateOf(false) }
     val contrast = if (color.luminance() > 0.45f) Color.Black else Color.White
 
     // Components above 1.0 in extended sRGB are what carry the colour past SDR white.
@@ -171,7 +177,6 @@ fun ScreenLight(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(emitted)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { controlsVisible = !controlsVisible },
@@ -180,6 +185,27 @@ fun ScreenLight(
             },
         contentAlignment = Alignment.Center,
     ) {
+        if (compareMode) {
+            // Side by side, so the difference is visible at a glance instead of
+            // having to remember how bright the last setting looked.
+            Row(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .background(pureColor),
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .background(emitted),
+                )
+            }
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(emitted))
+        }
+
         AnimatedVisibility(visible = controlsVisible) {
             Column(
                 modifier = Modifier
@@ -204,6 +230,17 @@ fun ScreenLight(
                     fontFamily = FontFamily.Monospace,
                     textAlign = TextAlign.Center,
                 )
+                if (compareMode) {
+                    Text(
+                        text = "left: pure hue, no boost   |   right: boost + HDR",
+                        color = contrast.copy(alpha = 0.75f),
+                        fontFamily = FontFamily.Monospace,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                FilledTonalButton(onClick = { compareMode = !compareMode }) {
+                    Text(if (compareMode) "Stop comparing" else "Compare with/without boost")
+                }
                 FilledTonalButton(onClick = onExit) {
                     Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text(text = "  Close lamp")
