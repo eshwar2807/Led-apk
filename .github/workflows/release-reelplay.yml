@@ -59,6 +59,11 @@ jobs:
             echo "::error::Missing repository secrets:$missing. Add them under Settings → Secrets and variables → Actions → Repository secrets, with exactly these names."
             exit 1
           fi
+          # Pasted secrets often carry an invisible trailing newline or space; drop it.
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'; }
+          RELEASE_STORE_PASSWORD=$(trim "$RELEASE_STORE_PASSWORD")
+          RELEASE_KEY_PASSWORD=$(trim "$RELEASE_KEY_PASSWORD")
+          RELEASE_KEY_ALIAS=$(trim "$RELEASE_KEY_ALIAS")
           # Catch a bad paste before a 10-minute build, and say which part is wrong.
           # Pastes often carry line breaks, Windows CRs or certutil's BEGIN/END lines: drop them.
           decode() { printf '%s' "$RELEASE_KEYSTORE_BASE64" | sed -E 's/-----[A-Z ]+-----//g' | tr -d ' \t\r\n' | base64 -d; }
@@ -69,7 +74,7 @@ jobs:
           echo "Decoded keystore: $(stat -c %s "$RUNNER_TEMP/check.keystore") bytes"
           if ! out=$(keytool -list -keystore "$RUNNER_TEMP/check.keystore" -storepass "$RELEASE_STORE_PASSWORD" 2>&1); then
             if echo "$out" | grep -qi 'password'; then
-              echo "::error::The keystore decoded, but RELEASE_STORE_PASSWORD doesn't open it. Re-enter the password you chose when running keytool."
+              echo "::error::The keystore decoded, but RELEASE_STORE_PASSWORD doesn't open it (even ignoring spaces and line breaks around it). Re-enter the exact password you typed when running keytool."
             else
               echo "::error::RELEASE_KEYSTORE_BASE64 decodes, but not to a keystore. Encode the .keystore file itself (not a certificate or the .jks path)."
             fi
@@ -80,6 +85,12 @@ jobs:
             echo "::error::The keystore opens, but has no key named by RELEASE_KEY_ALIAS. It contains:"
             echo "$out" | grep -iE 'PrivateKeyEntry|Alias name' | sed 's/,.*//'
             exit 1
+          fi
+          # keytool's default PKCS12 keystores have no separate key password: the keystore's
+          # opens the key. The build step uses it, whatever RELEASE_KEY_PASSWORD says.
+          if keytool -list -keystore "$RUNNER_TEMP/check.keystore" -storepass "$RELEASE_STORE_PASSWORD" 2>/dev/null \
+               | grep -q 'Keystore type: PKCS12' && [ "$RELEASE_KEY_PASSWORD" != "$RELEASE_STORE_PASSWORD" ]; then
+            echo "::warning::RELEASE_KEY_PASSWORD differs from RELEASE_STORE_PASSWORD; this is a PKCS12 keystore, so the keystore password is used for the key."
           fi
           rm -f "$RUNNER_TEMP/check.keystore"
           echo "Keystore opens and contains alias $RELEASE_KEY_ALIAS"
@@ -112,8 +123,17 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
+          # Pasted secrets often carry an invisible trailing newline or space; drop it.
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'; }
+          RELEASE_STORE_PASSWORD=$(trim "$RELEASE_STORE_PASSWORD")
+          RELEASE_KEY_PASSWORD=$(trim "$RELEASE_KEY_PASSWORD")
+          RELEASE_KEY_ALIAS=$(trim "$RELEASE_KEY_ALIAS")
           export RELEASE_STORE_FILE="$RUNNER_TEMP/release.keystore"
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | sed -E 's/-----[A-Z ]+-----//g' | tr -d ' \t\r\n' | base64 -d > "$RELEASE_STORE_FILE"
+          if keytool -list -keystore "$RELEASE_STORE_FILE" -storepass "$RELEASE_STORE_PASSWORD" 2>/dev/null | grep -q 'Keystore type: PKCS12'; then
+            RELEASE_KEY_PASSWORD="$RELEASE_STORE_PASSWORD"
+          fi
+          export RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD RELEASE_KEY_ALIAS
           ./gradlew :player:assembleRelease :player:testDebugUnitTest \
             -PreelplayUpdateUrl='${{ steps.fly.outputs.url }}' --stacktrace
           rm -f "$RELEASE_STORE_FILE"
