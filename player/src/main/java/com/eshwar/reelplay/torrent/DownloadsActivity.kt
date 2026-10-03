@@ -63,6 +63,7 @@ import com.eshwar.reelplay.player.PlayerActivity
 import com.eshwar.reelplay.ui.ReelPlayTheme
 import com.eshwar.reelplay.ui.formatDuration
 import com.eshwar.reelplay.ui.formatSize
+import com.eshwar.reelplay.ui.startActivitySafely
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -103,7 +104,7 @@ private fun DownloadsScreen(onClose: () -> Unit) {
 
     fun play(item: DownloadItem, fileIndex: Int?, saved: SavedFile?) {
         if (saved != null) {
-            context.startActivity(PlayerActivity.intent(context, listOf(saved.uri.toUri()), listOf(saved.name), 0))
+            context.startActivitySafely(PlayerActivity.intent(context, listOf(saved.uri.toUri()), listOf(saved.name), 0))
             return
         }
         val index = fileIndex ?: return
@@ -111,7 +112,7 @@ private fun DownloadsScreen(onClose: () -> Unit) {
             try {
                 val stream = withContext(Dispatchers.IO) { TorrentDownloads.streamFile(context, item.id, index) }
                 TorrentDownloadService.start(context)
-                context.startActivity(
+                context.startActivitySafely(
                     PlayerActivity.intent(context, listOf(TorrentEngine.uriFor(stream)), listOf(stream.file.name), 0),
                 )
             } catch (e: Exception) {
@@ -199,7 +200,7 @@ private fun DownloadsScreen(onClose: () -> Unit) {
             onDismiss = { adding = false },
             onOpen = { source ->
                 adding = false
-                context.startActivity(TorrentActivity.intent(context, source))
+                context.startActivitySafely(TorrentActivity.intent(context, source))
             },
         )
     }
@@ -315,16 +316,12 @@ private fun DownloadCard(
 private fun open(context: Context, file: SavedFile) {
     val view = Intent(Intent.ACTION_VIEW).setDataAndType(file.uri.toUri(), file.mime)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    try {
-        context.startActivity(Intent.createChooser(view, "Open ${file.name}"))
-    } catch (_: Exception) {
-        Toast.makeText(context, "No app can open ${file.name}", Toast.LENGTH_SHORT).show()
-    }
+    context.startActivitySafely(Intent.createChooser(view, "Open ${file.name}"), "Couldn't open ${file.name}")
 }
 
 private fun share(context: Context, file: SavedFile) {
     val send = Intent(Intent.ACTION_SEND).setType(file.mime)
         .putExtra(Intent.EXTRA_STREAM, file.uri.toUri())
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    context.startActivity(Intent.createChooser(send, "Share ${file.name}"))
+    context.startActivitySafely(Intent.createChooser(send, "Share ${file.name}"), "Couldn't share")
 }

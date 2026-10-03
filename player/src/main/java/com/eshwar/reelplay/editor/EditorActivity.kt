@@ -65,8 +65,8 @@ class EditorActivity : ComponentActivity() {
 
         fun intent(context: Context, uris: List<Uri>): Intent =
             Intent(context, EditorActivity::class.java).apply {
+                // No URI grant needed for our own activity (see PlayerActivity.intent).
                 putParcelableArrayListExtra(EXTRA_URIS, ArrayList(uris))
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
     }
 }

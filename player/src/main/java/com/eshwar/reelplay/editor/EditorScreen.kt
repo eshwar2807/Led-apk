@@ -88,6 +88,7 @@ import com.eshwar.reelplay.player.PlayerActivity
 import com.eshwar.reelplay.ui.formatDuration
 import com.eshwar.reelplay.ui.formatSeconds
 import com.eshwar.reelplay.ui.formatSize
+import com.eshwar.reelplay.ui.startActivitySafely
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
@@ -538,7 +539,7 @@ fun EditorScreen(
                     putExtra(Intent.EXTRA_STREAM, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                context.startActivity(Intent.createChooser(send, "Share video"))
+                context.startActivitySafely(Intent.createChooser(send, "Share video"), "Couldn't share")
             },
         )
         null -> Unit

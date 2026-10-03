@@ -388,7 +388,9 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
                 putParcelableArrayListExtra(EXTRA_URIS, ArrayList(uris))
                 putStringArrayListExtra(EXTRA_TITLES, ArrayList(titles))
                 putExtra(EXTRA_INDEX, index)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                // No FLAG_GRANT_READ_URI_PERMISSION: this is our own activity, which reads with
+                // the app's own access. Asking Android to grant a URI we can't read ourselves
+                // (e.g. under "Allow limited access") made startActivity throw.
             }
     }
 }

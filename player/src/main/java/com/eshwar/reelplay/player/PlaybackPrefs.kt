@@ -38,6 +38,11 @@ class PlaybackPrefs(context: Context) {
             return uri.toUri() to (prefs.getString(LAST_TITLE, null) ?: "Video")
         }
 
+    fun clearLastPlayed() = prefs.edit {
+        remove(LAST_URI)
+        remove(LAST_TITLE)
+    }
+
     var playbackSpeed: Float
         get() = prefs.getFloat(SPEED, 1f)
         set(value) = prefs.edit { putFloat(SPEED, value) }

@@ -72,6 +72,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -98,7 +99,11 @@ import com.eshwar.reelplay.torrent.TorrentSourceDialog
 import com.eshwar.reelplay.update.Updates
 import kotlinx.coroutines.launch
 import com.eshwar.reelplay.ui.formatDuration
+import com.eshwar.reelplay.ui.canRead
 import com.eshwar.reelplay.ui.formatSize
+import com.eshwar.reelplay.ui.startActivitySafely
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private fun mediaPermissions(): Array<String> = when {
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> arrayOf(
@@ -173,7 +178,7 @@ fun LibraryScreen() {
     }
 
     fun play(list: List<VideoItem>, index: Int) {
-        context.startActivity(
+        context.startActivitySafely(
             PlayerActivity.intent(context, list.map { it.uri }, list.map { it.name }, index),
         )
     }
@@ -187,7 +192,7 @@ fun LibraryScreen() {
 
     val actions = VideoActions(
         play = ::play,
-        edit = { context.startActivity(EditorActivity.intent(context, listOf(it.uri))) },
+        edit = { context.startActivitySafely(EditorActivity.intent(context, listOf(it.uri))) },
         share = { shareVideo(context, it.uri) },
         info = { infoFor = it },
         delete = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ::delete else null,
@@ -278,7 +283,7 @@ fun LibraryScreen() {
                                     leadingIcon = { Icon(Icons.Rounded.Download, null) },
                                     onClick = {
                                         showMoreMenu = false
-                                        context.startActivity(DownloadsActivity.intent(context))
+                                        context.startActivitySafely(DownloadsActivity.intent(context))
                                     },
                                 )
                                 DropdownMenuItem(
@@ -294,7 +299,7 @@ fun LibraryScreen() {
                                     leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                                     onClick = {
                                         showMoreMenu = false
-                                        context.startActivity(SettingsActivity.intent(context))
+                                        context.startActivitySafely(SettingsActivity.intent(context))
                                     },
                                 )
                                 DropdownMenuItem(
@@ -310,7 +315,7 @@ fun LibraryScreen() {
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { context.startActivity(EditorActivity.intent(context, emptyList())) },
+                onClick = { context.startActivitySafely(EditorActivity.intent(context, emptyList())) },
                 icon = { Icon(Icons.Rounded.ContentCut, null) },
                 text = { Text("New edit") },
                 containerColor = MaterialTheme.colorScheme.secondary,
@@ -332,10 +337,20 @@ fun LibraryScreen() {
                 searching -> VideoList(filtered, prefs, progressTick, actions)
                 openFolder != null -> VideoList(sort.sort(openFolder.videos), prefs, progressTick, actions)
                 else -> {
-                    val last = remember(progressTick) { prefs.lastPlayed }
-                    if (last != null) {
+                    // Only offer to continue something we can still open: access can be lost
+                    // (limited media access, the file deleted, a one-off grant from another app).
+                    val last by produceState<Pair<Uri, String>?>(null, progressTick) {
+                        val candidate = prefs.lastPlayed
+                        value = if (candidate != null && withContext(Dispatchers.IO) { context.canRead(candidate.first) }) {
+                            candidate
+                        } else {
+                            if (candidate != null) prefs.clearLastPlayed()
+                            null
+                        }
+                    }
+                    last?.let { last ->
                         ContinueBanner(title = last.second) {
-                            context.startActivity(
+                            context.startActivitySafely(
                                 PlayerActivity.intent(context, listOf(last.first), listOf(last.second), 0),
                             )
                         }
@@ -362,7 +377,7 @@ fun LibraryScreen() {
             onDismiss = { showStreamDialog = false },
             onPlay = { url ->
                 showStreamDialog = false
-                context.startActivity(PlayerActivity.intent(context, listOf(url.toUri()), listOf(url), 0))
+                context.startActivitySafely(PlayerActivity.intent(context, listOf(url.toUri()), listOf(url), 0))
             },
         )
     }
@@ -372,7 +387,7 @@ fun LibraryScreen() {
             onDismiss = { showTorrentDialog = false },
             onOpen = { source ->
                 showTorrentDialog = false
-                context.startActivity(TorrentActivity.intent(context, source))
+                context.startActivitySafely(TorrentActivity.intent(context, source))
             },
         )
     }
@@ -413,7 +428,7 @@ private fun shareVideo(context: Context, uri: Uri) {
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(send, "Share video"))
+    context.startActivitySafely(Intent.createChooser(send, "Share video"), "Couldn't share")
 }
 
 @Composable
