@@ -31,6 +31,10 @@ jobs:
       - name: Build APKs
         run: ./gradlew assembleDebug assembleRelease lintDebug testDebugUnitTest --stacktrace
 
+      - name: Test update server
+        working-directory: update-server
+        run: go test ./...
+
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:

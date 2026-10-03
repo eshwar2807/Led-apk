@@ -10,6 +10,7 @@ media3 = "1.11.1"
 exifinterface = "1.4.2"
 libtorrent4j = "2.1.0-39"
 junit = "4.13.2"
+work = "2.12.0"
 orgJson = "20260814"
 
 [libraries]
@@ -37,6 +38,7 @@ libtorrent4j = { group = "org.libtorrent4j", name = "libtorrent4j", version.ref 
 libtorrent4j-android-arm64 = { group = "org.libtorrent4j", name = "libtorrent4j-android-arm64", version.ref = "libtorrent4j" }
 libtorrent4j-android-arm = { group = "org.libtorrent4j", name = "libtorrent4j-android-arm", version.ref = "libtorrent4j" }
 libtorrent4j-linux = { group = "org.libtorrent4j", name = "libtorrent4j-linux", version.ref = "libtorrent4j" }
+androidx-work-runtime = { group = "androidx.work", name = "work-runtime", version.ref = "work" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 

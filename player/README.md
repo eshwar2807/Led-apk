@@ -24,6 +24,12 @@ come from the same composition.
 - Double-tap left/right third to skip ±10 s, double-tap the middle to pause/play.
 - Pinch to zoom (50–400%).
 
+**Seek bar**
+- A thin seek bar in the style of streaming apps: a 3 dp line with a small dot that both grow
+  while you drag, with buffered video shown behind the played part. Tap anywhere on it to jump.
+- Netflix red by default. **Settings → Seek bar colour** offers nine colours, with a live
+  preview; the choice also tints the buffering bar and speed badge.
+
 **Controls**
 - Lock (blocks every gesture and the back button), aspect ratio (fit / crop / stretch),
   orientation (landscape / portrait / auto — videos open in their own orientation).
@@ -124,6 +130,15 @@ by sharing videos to ReelPlay from the gallery.
 - **Export** to H.264 MP4 at 480p, 720p, 1080p or 2K, saved to `Movies/ReelPlay`,
   then play or share it from the dialog.
 
+## Updates
+
+ReelPlay updates itself from a small server on fly.io (`update-server/`). It checks on launch
+and every 6 hours in the background, notifies once per new version, downloads and verifies
+the APK, and hands it to Android's installer. **Library ⋮ → Check for updates** or
+**Settings** checks immediately. Publishing a release is one workflow run; see
+[`update-server/README.md`](../update-server/README.md) for the one-time fly.io and signing
+key setup.
+
 ## Build
 
 ```bash
@@ -148,6 +163,10 @@ Both are signed with the debug key, which is fine for sideloading. CI uploads th
 | `torrent/TorrentDownloads.kt` | Download list: adding, pause/resume, progress, saving to Download/, restart recovery |
 | `torrent/TorrentDownloadService.kt` | Foreground service and notifications while downloads run |
 | `torrent/DownloadsActivity.kt` | The Downloads screen |
+| `player/SeekBar.kt` | The thin seek bar |
+| `settings/` | Settings screen and stored preferences (seek bar colour) |
+| `update/` | Update check, background worker, download + install, update dialog |
+| `CrashReporter.kt` | Records crashes and abnormal exits; shown on the next launch |
 | `editor/Project.kt` | Immutable project model: clips, canvas, music |
 | `editor/EditorState.kt` | Undo/redo around the project |
 | `editor/CompositionFactory.kt` | Project → Media3 `Composition` (effects, text, speed, music) |

@@ -1,8 +1,10 @@
 package com.eshwar.reelplay
 
 import android.app.Application
+import com.eshwar.reelplay.settings.AppSettings
 import com.eshwar.reelplay.torrent.TorrentDownloadService
 import com.eshwar.reelplay.torrent.TorrentDownloads
+import com.eshwar.reelplay.update.UpdateWorker
 import java.io.File
 import kotlin.concurrent.thread
 
@@ -10,6 +12,8 @@ class ReelPlayApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
+        AppSettings.load(this)
+        UpdateWorker.schedule(this)
         // Pick unfinished torrent downloads back up. Only if there are any: this loads the
         // native torrent engine, which nobody who never downloads should pay for.
         if (File(filesDir, "downloads/registry.json").exists()) {

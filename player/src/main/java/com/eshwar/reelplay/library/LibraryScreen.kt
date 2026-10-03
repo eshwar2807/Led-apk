@@ -43,7 +43,9 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -71,6 +73,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -88,9 +91,12 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.eshwar.reelplay.editor.EditorActivity
 import com.eshwar.reelplay.player.PlaybackPrefs
 import com.eshwar.reelplay.player.PlayerActivity
+import com.eshwar.reelplay.settings.SettingsActivity
 import com.eshwar.reelplay.torrent.DownloadsActivity
 import com.eshwar.reelplay.torrent.TorrentActivity
 import com.eshwar.reelplay.torrent.TorrentSourceDialog
+import com.eshwar.reelplay.update.Updates
+import kotlinx.coroutines.launch
 import com.eshwar.reelplay.ui.formatDuration
 import com.eshwar.reelplay.ui.formatSize
 
@@ -128,6 +134,7 @@ fun LibraryScreen() {
     var showMoreMenu by remember { mutableStateOf(false) }
     var showStreamDialog by remember { mutableStateOf(false) }
     var showTorrentDialog by remember { mutableStateOf(false) }
+    val updateScope = rememberCoroutineScope()
     var infoFor by remember { mutableStateOf<VideoItem?>(null) }
     // Resume positions change while the player is open; bump this to redraw progress strips.
     var progressTick by remember { mutableIntStateOf(0) }
@@ -272,6 +279,22 @@ fun LibraryScreen() {
                                     onClick = {
                                         showMoreMenu = false
                                         context.startActivity(DownloadsActivity.intent(context))
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Check for updates") },
+                                    leadingIcon = { Icon(Icons.Rounded.SystemUpdate, null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        updateScope.launch { Updates.check(userAsked = true) }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Settings") },
+                                    leadingIcon = { Icon(Icons.Rounded.Settings, null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        context.startActivity(SettingsActivity.intent(context))
                                     },
                                 )
                                 DropdownMenuItem(

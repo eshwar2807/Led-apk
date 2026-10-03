@@ -67,11 +67,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -104,6 +104,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.eshwar.reelplay.settings.AppSettings
 import com.eshwar.reelplay.torrent.TorrentEngine
 import com.eshwar.reelplay.torrent.describe
 import com.eshwar.reelplay.ui.formatDuration
@@ -168,6 +169,8 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
         listener.onEvents(player, Player.Events(androidx.media3.common.FlagSet.Builder().build()))
         onDispose { player.removeListener(listener) }
     }
+
+    val accent = AppSettings.accent.collectAsState().value.color
 
     // ---- UI state ----
     var controlsVisible by remember { mutableStateOf(true) }
@@ -413,7 +416,7 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
         if (buffering && !inPip) {
             LinearProgressIndicator(
                 Modifier.fillMaxWidth().align(Alignment.TopCenter),
-                color = MaterialTheme.colorScheme.primary,
+                color = accent,
             )
             // When a torrent stalls, say why instead of spinning silently.
             if (!controlsVisible) {
@@ -629,21 +632,20 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val shown = scrubbing?.let { (it * duration).toLong() } ?: position
                             Text(formatDuration(shown), color = Color.White, fontSize = 13.sp)
-                            Slider(
-                                value = scrubbing ?: if (duration > 0) position.toFloat() / duration else 0f,
-                                onValueChange = {
+                            SeekBar(
+                                value = if (duration > 0) position.toFloat() / duration else 0f,
+                                buffered = if (duration > 0) buffered.toFloat() / duration else 0f,
+                                color = accent,
+                                onSeeking = {
                                     poke()
                                     scrubbing = it
                                 },
-                                onValueChangeFinished = {
-                                    scrubbing?.let { player.seekTo((it * duration).toLong()) }
+                                onSeek = {
+                                    poke()
+                                    player.seekTo((it * duration).toLong())
+                                    position = (it * duration).toLong()
                                     scrubbing = null
                                 },
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                    inactiveTrackColor = Color(0x55FFFFFF),
-                                ),
                                 modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
                             )
                             Text(
@@ -664,7 +666,7 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                             Spacer(Modifier.weight(1f))
                             if (speed != 1f) {
                                 Text(
-                                    "${trimFloat(speed)}×", color = MaterialTheme.colorScheme.primary,
+                                    "${trimFloat(speed)}×", color = accent,
                                     fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp),
                                 )
                             }
