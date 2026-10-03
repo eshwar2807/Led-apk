@@ -431,6 +431,15 @@ private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+        // After a while with no start, say why rather than leave a bare progress bar.
+        var waited by remember { mutableIntStateOf(0) }
+        LaunchedEffect(stream) {
+            while (true) {
+                delay(1000)
+                waited++
+            }
+        }
+        if (waited >= 20) SwarmHealthPanel(stream.file.name) { SwarmHealth.of(stream.handle) }
         Spacer(Modifier.height(4.dp))
         Text(
             stats?.let { describe(it) } ?: "",

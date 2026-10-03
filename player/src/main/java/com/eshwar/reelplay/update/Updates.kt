@@ -60,7 +60,12 @@ sealed interface UpdateState {
     /** Android needs "Install unknown apps" allowed for ReelPlay first. */
     data class NeedsPermission(val update: AppUpdate) : UpdateState
     data class Installing(val update: AppUpdate) : UpdateState
-    data class Failed(val message: String, val update: AppUpdate?) : UpdateState
+    data class Failed(
+        val message: String,
+        val update: AppUpdate?,
+        /** The fix is a manual reinstall from the download page; offer to open it. */
+        val needsReinstall: Boolean = false,
+    ) : UpdateState
 }
 
 /**
@@ -251,6 +256,7 @@ object Updates {
                         "version from ${BuildConfig.UPDATE_URL.removeSuffix("reelplay/")} — updates after that " +
                         "install normally.",
                     update,
+                    needsReinstall = true,
                 )
             PackageInstaller.STATUS_FAILURE_STORAGE -> UpdateState.Failed("Not enough storage to install the update", update)
             else -> UpdateState.Failed("Install failed: ${message ?: "error $status"}", update)

@@ -1,4 +1,3 @@
-- Much faster torrents: trackers from .torrent files and magnet links are now actually used (they were being dropped, leaving only DHT to find peers)
-- Connects to more peers at once and keeps each one busier
-- Adds well-known public trackers to public torrents and magnet links, so peers turn up sooner
-- Downloads keep full speed with the screen off
+- "Why is it slow?" on every download: says whether it's too few seeders, a network blocking torrents, blocked incoming connections, or still connecting, with a Copy details button
+- Streams that take a while to start explain why
+- The "signed with a different key" message has a button to the download page

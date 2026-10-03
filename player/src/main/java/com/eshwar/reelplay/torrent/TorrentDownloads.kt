@@ -215,6 +215,9 @@ object TorrentDownloads {
         if (record.paused) handle.pause() else handle.resume()
     }
 
+    /** Swarm diagnostics for an unfinished download, or null. Blocking; call off the main thread. */
+    fun health(id: String): SwarmHealth? = handle(id)?.let { SwarmHealth.of(it) }
+
     private fun handle(id: String): TorrentHandle? = try {
         metas[id]?.let { TorrentEngine.session(appContext).find(it.info.infoHash()) }?.takeIf { it.isValid }
     } catch (_: Exception) {

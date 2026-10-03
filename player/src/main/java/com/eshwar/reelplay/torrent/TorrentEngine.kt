@@ -197,6 +197,18 @@ object TorrentEngine {
         setPosixDiskIO()
     }
 
+    fun dhtNodes(): Long = try {
+        session?.dhtNodes() ?: 0
+    } catch (_: Exception) {
+        0
+    }
+
+    fun isFirewalled(): Boolean = try {
+        session?.isFirewalled ?: false
+    } catch (_: Exception) {
+        false
+    }
+
     /** Free space where torrent data is written. */
     fun freeBytes(context: Context): Long = try {
         StatFs(storageRoot(context).path).availableBytes

@@ -27,6 +27,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.eshwar.reelplay.BuildConfig
 import com.eshwar.reelplay.ui.formatSize
+import com.eshwar.reelplay.ui.startActivitySafely
 import kotlinx.coroutines.launch
 
 /** Shows whatever [Updates] is doing: offer, download progress, install, or what went wrong. */
@@ -121,7 +122,14 @@ fun UpdateDialog() {
             title = { Text("Update problem") },
             text = { Text(s.message) },
             confirmButton = {
-                if (s.update != null) {
+                if (s.needsReinstall) {
+                    TextButton(onClick = {
+                        context.startActivitySafely(
+                            Intent(Intent.ACTION_VIEW, BuildConfig.UPDATE_URL.removeSuffix("reelplay/").toUri()),
+                            "Couldn't open the download page",
+                        )
+                    }) { Text("Open download page") }
+                } else if (s.update != null) {
                     TextButton(onClick = { scope.launch { Updates.install(context, s.update) } }) { Text("Try again") }
                 } else {
                     TextButton(onClick = ::close) { Text("OK") }

@@ -261,6 +261,13 @@ private fun DownloadCard(
                 Spacer(Modifier.height(4.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
+            if (item.state == DownloadState.DOWNLOADING || item.state == DownloadState.STARTING) {
+                var diagnose by remember { mutableStateOf(false) }
+                TextButton(onClick = { diagnose = !diagnose }, contentPadding = PaddingValues(0.dp)) {
+                    Text(if (diagnose) "Hide details" else "Why is it slow?")
+                }
+                if (diagnose) SwarmHealthPanel(r.name) { TorrentDownloads.health(item.id) }
+            }
 
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
                 // Play: finished copies, or stream a video straight out of the unfinished download.

@@ -150,6 +150,11 @@ class TorrentStreamTest {
         assertEquals(0L, handle.status().totalWantedDone())
 
         handle.resume()
+        // Diagnostics read real numbers mid-transfer: the seeder is connected, and the public
+        // trackers this (non-private) torrent was given are listed.
+        waitUntil(30_000) { (SwarmHealth.of(handle)?.connectedPeers ?: 0) >= 1 }
+        val health = SwarmHealth.of(handle)!!
+        assertEquals(TorrentEngine.PUBLIC_TRACKERS.size, health.trackersTotal)
         waitUntil(120_000) { handle.status().isFinished }
         val status = handle.status()
         assertEquals(chosen.size, status.totalWanted())
