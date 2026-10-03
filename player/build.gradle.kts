@@ -11,8 +11,8 @@ android {
         applicationId = "com.eshwar.reelplay"
         minSdk = 26
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     buildTypes {
@@ -71,4 +71,6 @@ dependencies {
     // JVM tests stream a real torrent between two local libtorrent sessions.
     testImplementation(libs.junit)
     testImplementation(libs.libtorrent4j.linux)
+    // Android's org.json is a stub on the JVM; the real one for the registry round-trip test.
+    testImplementation(libs.org.json)
 }

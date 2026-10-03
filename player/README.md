@@ -34,11 +34,15 @@ come from the same composition.
 - Remembers where you left each video; next/previous through the folder.
 - **Edit** button sends the current video straight into the editor.
 
-**Torrent streaming**
-- Library ⋮ → **Stream torrent**: paste a magnet link or a `.torrent` URL, or pick a
+**Torrents and magnet links**
+- Library ⋮ → **Open torrent / magnet**: paste a magnet link or a `.torrent` URL, or pick a
   `.torrent` file. Magnet links clicked in a browser and `.torrent` files opened from a file
-  manager also land here.
-- If the torrent holds several videos you pick one; only that file is downloaded.
+  manager (or shared to ReelPlay) land in the same place.
+- After the torrent's details arrive (from peers, for a magnet), choose **Stream** or
+  **Download**.
+
+**Torrent streaming**
+- Pick a video and only that file is downloaded.
 - Playback starts after a short pre-buffer: the first few pieces plus the last one, because
   MP4 and MKV keep their index at the ends. **Play now** skips the wait.
 - The file downloads front to back while you watch. Seeking jumps the queue: the pieces at
@@ -48,6 +52,24 @@ come from the same composition.
   is waiting for data.
 - Closing the video stops the torrent and **deletes what it downloaded**. Leftovers from a
   killed app are cleared the next time a torrent starts.
+**Torrent downloads**
+- Tick the files to keep (all by default) and tap **Download**. Library ⋮ → **Downloads**
+  lists everything with progress, speed, peers and time left.
+- Keeps going with the app in the background, with a progress notification and a
+  "Download complete" one. (Android 15+ limits this kind of background work to 6 hours a day;
+  past that, downloads continue whenever the app is open.)
+- Pause, resume, retry and remove each download. Unfinished downloads are picked up again the
+  next time the app starts; libtorrent re-checks what's already on disk first.
+- **Play while downloading**: videos in an unfinished download can be played straight away,
+  using the same streaming path (seeks fetch the needed pieces first).
+- When done, files are copied to **Download/ReelPlay/<torrent name>/** (keeping the torrent's
+  folders), where galleries, file managers and the ReelPlay library see them. The working copy
+  is then deleted and seeding stops. Removing a finished download can optionally delete the
+  saved files too.
+- On Android 8–9 this needs storage permission; without it, finished files stay in
+  ReelPlay's own storage and can still be played, opened and shared from Downloads.
+
+**Torrent engine**
 - Built on [libtorrent4j](https://github.com/aldenml/libtorrent4j) (libtorrent 2.0), DHT and
   local peer discovery on. Native code is included for arm64 and 32-bit arm phones; the
   feature reports itself unavailable on x86 devices and emulators.
@@ -98,7 +120,10 @@ Both are signed with the debug key, which is fine for sideloading. CI uploads th
 | `torrent/TorrentEngine.kt` | The libtorrent session: reading torrents/magnets, starting and removing streams |
 | `torrent/TorrentStream.kt` | Piece maths, pre-buffer, seek deadlines, blocking reads |
 | `torrent/TorrentDataSource.kt` | Media3 `DataSource` that plays `torrent://` URIs from the partial file |
-| `torrent/TorrentActivity.kt` | Fetch details, choose a file, buffer, hand off to the player |
+| `torrent/TorrentActivity.kt` | Fetch details, then stream a video (buffer, hand off) or pick files to download |
+| `torrent/TorrentDownloads.kt` | Download list: adding, pause/resume, progress, saving to Download/, restart recovery |
+| `torrent/TorrentDownloadService.kt` | Foreground service and notifications while downloads run |
+| `torrent/DownloadsActivity.kt` | The Downloads screen |
 | `editor/Project.kt` | Immutable project model: clips, canvas, music |
 | `editor/EditorState.kt` | Undo/redo around the project |
 | `editor/CompositionFactory.kt` | Project → Media3 `Composition` (effects, text, speed, music) |
@@ -110,14 +135,20 @@ Both are signed with the debug key, which is fine for sideloading. CI uploads th
 `./gradlew :player:testDebugUnitTest` runs `TorrentStreamTest`. It seeds a real
 multi-file torrent from one libtorrent session and streams a file from a second session over
 localhost, with the seeder throttled. The reads (start, tail, then seeks into the middle) have
-to wait for missing pieces and must return the original bytes. Linux x86_64 only; the test
-skips elsewhere.
+to wait for missing pieces and must return the original bytes.
+
+A second test does the download path: libtorrent's default add flags, then taken off the
+queue manager and paused, as `TorrentDownloads` does. It checks nothing downloads while
+paused, that after resuming only the chosen file is fetched, and that "finished" means that
+file is complete and byte-identical. A third checks the saved download list survives a JSON
+round trip. The libtorrent tests run on Linux x86_64 only and skip elsewhere.
 
 ## Limits
 
 - Text and filters apply to whole clips; split a clip to time a caption.
 - No transitions, stickers, keyframes or reverse yet.
-- Torrents stream one file at a time and aren't kept after playback; there's no download
-  manager or seeding afterwards. Editing a video that's still streaming isn't supported.
+- Streams aren't kept after playback (use Download for that). Finished downloads aren't
+  seeded. There are no speed limits, Wi-Fi-only mode or download queue yet; every download
+  runs at once. Editing a video that's still streaming isn't supported.
 - MX's software decoders (for codecs the phone can't decode in hardware, e.g. some AC3/DTS
   audio) aren't included; playback uses the phone's own decoders.

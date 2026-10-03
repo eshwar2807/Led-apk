@@ -3,6 +3,7 @@ package com.eshwar.reelplay.torrent
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
@@ -17,6 +18,7 @@ import org.libtorrent4j.TorrentHandle
 import org.libtorrent4j.TorrentInfo
 import org.libtorrent4j.TorrentStatus
 import org.libtorrent4j.swig.settings_pack
+import org.libtorrent4j.swig.torrent_flags_t
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
@@ -36,7 +38,8 @@ class TorrentStreamTest {
     fun setUp() {
         assumeTrue(
             "libtorrent's desktop build is only bundled for Linux x86_64",
-            System.getProperty("os.name").startsWith("Linux") && System.getProperty("os.arch") in setOf("amd64", "x86_64"),
+            System.getProperty("os.name").orEmpty().startsWith("Linux") &&
+                System.getProperty("os.arch").orEmpty() in setOf("amd64", "x86_64"),
         )
         loadNativeLibrary()
         root = Files.createTempDirectory("torrent-test").toFile()
@@ -57,8 +60,9 @@ class TorrentStreamTest {
         File(pack, "movie.mp4").writeBytes(video)
 
         val built = TorrentBuilder().path(pack).pieceSize(256 * 1024).generate()
-        val info = TorrentInfo(built.entry().bencode())
-        val meta = TorrentMeta(info)
+        val torrentBytes = built.entry().bencode()
+        val info = TorrentInfo(torrentBytes)
+        val meta = TorrentMeta(info, torrentBytes)
         val file = meta.videoFiles.single()
         assertEquals("movie.mp4", file.name)
 
@@ -78,7 +82,7 @@ class TorrentStreamTest {
         leecher.download(
             info, dir, null, priorities, listOf(TcpEndpoint("127.0.0.1", seedPort)), TorrentFlags.SEQUENTIAL_DOWNLOAD,
         )
-        val stream = TorrentStream(awaitHandle(leecher, info), meta, file, File(dir, file.path))
+        val stream = TorrentStream(awaitHandle(leecher, info), meta, file, File(dir, file.path), ownsTorrent = true)
         stream.primeEnds()
 
         // Like a player: header first, then the tail (MP4 index), then seek into the middle.
@@ -99,6 +103,65 @@ class TorrentStreamTest {
             }
             assertEquals(-1, stream.read(raf, video.size.toLong(), ByteArray(16), 0, 16))
         }
+    }
+
+    /**
+     * The download path: added unpaused-by-us with libtorrent's default flags, taken off the
+     * auto-manager the way [TorrentDownloads] does, then paused and resumed. Checks pause really
+     * holds, only the chosen file is fetched, and "finished" means the chosen file is complete.
+     */
+    @Test(timeout = 180_000)
+    fun downloadsOnlyChosenFiles_andPauseHolds() {
+        val pack = File(root, "seed/pack").apply { mkdirs() }
+        File(pack, "a_extra.bin").writeBytes(Random(3).nextBytes(3 * 1024 * 1024))
+        val wanted = Random(4).nextBytes(6 * 1024 * 1024 + 123)
+        File(pack, "b_movie.mkv").writeBytes(wanted)
+        val torrentBytes = TorrentBuilder().path(pack).pieceSize(256 * 1024).generate().entry().bencode()
+        val info = TorrentInfo(torrentBytes)
+        val meta = TorrentMeta(info, torrentBytes)
+        val chosen = meta.files.single { it.name == "b_movie.mkv" }
+
+        val seedPort = 47600 + Random.nextInt(300)
+        val seeder = session(seedPort)
+        seeder.download(info, File(root, "seed"))
+        val seedHandle = awaitHandle(seeder, info)
+        seedHandle.setUploadLimit(2 * 1024 * 1024)
+        waitUntil(60_000) { seedHandle.status().state() == TorrentStatus.State.SEEDING }
+
+        val leecher = session(seedPort + 1)
+        val dir = File(root, "leech").apply { mkdirs() }
+        val priorities = Array(meta.files.size) { if (it == chosen.index) Priority.DEFAULT else Priority.IGNORE }
+        leecher.download(info, dir, null, priorities, listOf(TcpEndpoint("127.0.0.1", seedPort)), torrent_flags_t())
+        val handle = awaitHandle(leecher, info)
+        handle.unsetFlags(TorrentFlags.AUTO_MANAGED)
+        handle.pause()
+
+        // Paused: nothing arrives, and libtorrent's queue doesn't quietly restart it.
+        Thread.sleep(3_000)
+        assertEquals(0L, handle.status().totalWantedDone())
+
+        handle.resume()
+        waitUntil(120_000) { handle.status().isFinished }
+        val status = handle.status()
+        assertEquals(chosen.size, status.totalWanted())
+        assertEquals(chosen.size, status.totalWantedDone())
+        assertArrayEquals(wanted, File(dir, chosen.path).readBytes())
+        // The skipped file never gets written out in full.
+        val extra = File(dir, meta.files.single { it.name == "a_extra.bin" }.path)
+        assertTrue(!extra.exists() || extra.length() < 3 * 1024 * 1024)
+    }
+
+    @Test
+    fun downloadRecordSurvivesJsonRoundTrip() {
+        val record = DownloadRecord(
+            id = "abc123", name = "Some \"torrent\" / name", selected = listOf(0, 2, 5),
+            totalBytes = 9_876_543_210, addedAt = 1_700_000_000_000, paused = true, done = true,
+            saved = listOf(SavedFile("a.mkv", "content://media/external/downloads/42", "video/x-matroska")),
+            error = null, location = "Download/ReelPlay/x",
+        )
+        assertEquals(record, DownloadRecord.fromJson(org.json.JSONObject(record.toJson().toString())))
+        val bare = record.copy(saved = emptyList(), done = false, location = null, error = "boom")
+        assertEquals(bare, DownloadRecord.fromJson(org.json.JSONObject(bare.toJson().toString())))
     }
 
     private fun readFully(stream: TorrentStream, raf: RandomAccessFile, start: Long, length: Int): ByteArray {

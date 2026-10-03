@@ -22,8 +22,8 @@ data class TorrentFile(val index: Int, val path: String, val name: String, val s
     val isVideo: Boolean get() = name.substringAfterLast('.', "").lowercase() in VIDEO_EXTENSIONS
 }
 
-/** A torrent whose metadata we have, before anything is downloaded. */
-class TorrentMeta(val info: TorrentInfo) {
+/** A torrent whose metadata we have, before anything is downloaded. [bytes] is the .torrent itself. */
+class TorrentMeta(val info: TorrentInfo, val bytes: ByteArray) {
     val name: String = info.name()
     val infoHash: String = info.infoHash().toHex()
     val files: List<TorrentFile> = (0 until info.numFiles()).map { i ->
@@ -38,8 +38,9 @@ val VIDEO_EXTENSIONS = setOf(
 )
 
 /**
- * The app's single BitTorrent session. Torrents are added only to stream one file each; when
- * the player is done with it, the torrent is removed and its data deleted, so nothing piles up.
+ * The app's single BitTorrent session, shared by streaming and [TorrentDownloads]. A torrent
+ * added just to stream one file is removed, data and all, when the player lets go of it; a
+ * stream borrowed from a download leaves the download alone.
  */
 object TorrentEngine {
 
@@ -49,17 +50,21 @@ object TorrentEngine {
     private lateinit var saveRoot: File
     private val streams = ConcurrentHashMap<String, TorrentStream>()
 
+    /** App-private storage for torrent data: `torrents/` for streams, `downloads/` for downloads. */
+    fun storageRoot(context: Context): File =
+        context.applicationContext.getExternalFilesDir(null) ?: context.applicationContext.filesDir
+
     @Synchronized
-    private fun session(context: Context): SessionManager {
+    fun session(context: Context): SessionManager {
         session?.let { return it }
-        saveRoot = File(context.applicationContext.getExternalFilesDir(null) ?: context.filesDir, "torrents")
+        saveRoot = File(storageRoot(context), "torrents")
         // Anything left here is from a session that was killed mid-stream.
         saveRoot.deleteRecursively()
         saveRoot.mkdirs()
         val settings = SettingsPack()
             .connectionsLimit(200)
-            .activeDownloads(4)
-            .activeSeeds(4)
+            .activeDownloads(8)
+            .activeSeeds(8)
         settings.setEnableDht(true)
         settings.setEnableLsd(true)
         return SessionManager(false).also {
@@ -86,7 +91,7 @@ object TorrentEngine {
         } catch (e: Exception) {
             throw IOException("That isn't a valid torrent file", e)
         }
-        return TorrentMeta(info)
+        return TorrentMeta(info, bytes)
     }
 
     private fun download(url: String): ByteArray {
@@ -105,18 +110,28 @@ object TorrentEngine {
     fun start(context: Context, meta: TorrentMeta, file: TorrentFile): TorrentStream {
         val key = key(meta.infoHash, file.index)
         streams[key]?.let { return it }
+        // Already in Downloads: stream from that copy rather than fight over the torrent.
+        if (TorrentDownloads.contains(meta.infoHash)) return TorrentDownloads.streamFile(context, meta.infoHash, file.index)
         val s = session(context)
         val priorities = Array(meta.files.size) { if (it == file.index) Priority.DEFAULT else Priority.IGNORE }
         val dir = File(saveRoot, meta.infoHash).apply { mkdirs() }
         s.download(meta.info, dir, null, priorities, null, TorrentFlags.SEQUENTIAL_DOWNLOAD)
         val handle = awaitHandle(s, meta)
-        val stream = TorrentStream(handle, meta, file, File(dir, file.path))
+        // Out of libtorrent's queue, so a stream never waits behind downloads.
+        handle.unsetFlags(TorrentFlags.AUTO_MANAGED)
+        handle.resume()
+        return attach(TorrentStream(handle, meta, file, File(dir, file.path), ownsTorrent = true))
+    }
+
+    /** Registers [stream] so the player can open it by [uriFor]. */
+    fun attach(stream: TorrentStream): TorrentStream {
+        val key = key(stream.meta.infoHash, stream.file.index)
+        streams.putIfAbsent(key, stream)?.let { return it }
         stream.primeEnds()
-        streams[key] = stream
         return stream
     }
 
-    private fun awaitHandle(s: SessionManager, meta: TorrentMeta): TorrentHandle {
+    fun awaitHandle(s: SessionManager, meta: TorrentMeta): TorrentHandle {
         // Adding is asynchronous inside libtorrent; the handle appears a moment later.
         repeat(100) {
             s.find(meta.info.infoHash())?.takeIf { it.isValid }?.let { return it }
@@ -130,15 +145,17 @@ object TorrentEngine {
         return streams[key(uri.host ?: return null, uri.lastPathSegment?.toIntOrNull() ?: return null)]
     }
 
+    fun isStreaming(infoHash: String): Boolean = streams.values.any { it.meta.infoHash == infoHash }
+
     fun uriFor(stream: TorrentStream): Uri =
         Uri.Builder().scheme(SCHEME).authority(stream.meta.infoHash).appendPath(stream.file.index.toString()).build()
 
-    /** Stops the torrent behind [uri] and deletes what it downloaded. */
+    /** Stops the torrent behind [uri] and deletes what it downloaded, unless it belongs to a download. */
     fun close(uri: Uri) {
         val stream = stream(uri) ?: return
         streams.remove(key(stream.meta.infoHash, stream.file.index))
         stream.close()
-        if (streams.values.none { it.meta.infoHash == stream.meta.infoHash }) {
+        if (stream.ownsTorrent && streams.values.none { it.meta.infoHash == stream.meta.infoHash }) {
             try {
                 session?.remove(stream.handle, SessionHandle.DELETE_FILES)
             } catch (_: Exception) {

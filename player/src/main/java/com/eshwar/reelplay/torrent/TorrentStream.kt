@@ -24,6 +24,8 @@ class TorrentStream(
     val meta: TorrentMeta,
     val file: TorrentFile,
     val path: File,
+    /** False when the torrent belongs to a download and must outlive this stream. */
+    val ownsTorrent: Boolean,
 ) {
     private val pieceLength = meta.info.pieceLength().toLong()
     private val fileOffset = meta.info.files().fileOffset(file.index)
@@ -82,6 +84,7 @@ class TorrentStream(
         prefetchFrom(piece)
         while (!has(piece)) {
             if (closed) throw InterruptedIOException("Torrent stream closed")
+            if (!handle.isValid) throw java.io.IOException("The torrent was removed")
             try {
                 Thread.sleep(POLL_MS)
             } catch (e: InterruptedException) {
@@ -145,6 +148,13 @@ class TorrentStream(
 
     fun close() {
         closed = true
+        // A download carries on at its own pace once nobody is watching.
+        if (!ownsTorrent) {
+            try {
+                handle.clearPieceDeadlines()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private companion object {
