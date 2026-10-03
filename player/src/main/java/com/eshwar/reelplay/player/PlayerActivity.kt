@@ -31,7 +31,10 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.eshwar.reelplay.editor.EditorActivity
+import com.eshwar.reelplay.torrent.TorrentDataSource
+import com.eshwar.reelplay.torrent.TorrentEngine
 import com.eshwar.reelplay.ui.ReelPlayTheme
 import com.eshwar.reelplay.ui.formatDuration
 
@@ -65,6 +68,8 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
         hideSystemBars()
 
         player = ExoPlayer.Builder(this)
+            // torrent:// items read straight from the partly downloaded file.
+            .setMediaSourceFactory(DefaultMediaSourceFactory(TorrentDataSource.Factory(this)))
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .setHandleAudioBecomingNoisy(true)
@@ -93,7 +98,17 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         saveCurrent()
+        val previous = queuedUris()
         load(intent)
+        closeTorrents(previous - queuedUris().toSet())
+    }
+
+    private fun queuedUris(): List<Uri> =
+        (0 until player.mediaItemCount).mapNotNull { player.getMediaItemAt(it).localConfiguration?.uri }
+
+    /** Torrents exist only to feed this player; once it lets go, stop them and drop their data. */
+    private fun closeTorrents(uris: Collection<Uri>) {
+        uris.filter { it.scheme == TorrentEngine.SCHEME }.forEach(TorrentEngine::close)
     }
 
     private fun load(intent: Intent) {
@@ -239,6 +254,10 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
 
     override fun openInEditor() {
         val uri = player.currentMediaItem?.localConfiguration?.uri ?: return
+        if (uri.scheme == TorrentEngine.SCHEME || uri.scheme == "http" || uri.scheme == "https") {
+            Toast.makeText(this, "Only videos on this phone can be edited", Toast.LENGTH_SHORT).show()
+            return
+        }
         player.pause()
         startActivity(EditorActivity.intent(this, listOf(uri)))
     }
@@ -331,6 +350,7 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
 
     override fun onDestroy() {
         saveCurrent()
+        if (isFinishing) closeTorrents(queuedUris())
         player.removeListener(listener)
         player.release()
         enhancer?.release()

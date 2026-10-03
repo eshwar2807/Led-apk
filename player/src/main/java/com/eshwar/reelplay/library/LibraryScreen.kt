@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
@@ -86,6 +87,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.eshwar.reelplay.editor.EditorActivity
 import com.eshwar.reelplay.player.PlaybackPrefs
 import com.eshwar.reelplay.player.PlayerActivity
+import com.eshwar.reelplay.torrent.TorrentActivity
 import com.eshwar.reelplay.ui.formatDuration
 import com.eshwar.reelplay.ui.formatSize
 
@@ -122,6 +124,7 @@ fun LibraryScreen() {
     var showSortMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var showStreamDialog by remember { mutableStateOf(false) }
+    var showTorrentDialog by remember { mutableStateOf(false) }
     var infoFor by remember { mutableStateOf<VideoItem?>(null) }
     // Resume positions change while the player is open; bump this to redraw progress strips.
     var progressTick by remember { mutableIntStateOf(0) }
@@ -256,6 +259,11 @@ fun LibraryScreen() {
                                     onClick = { showMoreMenu = false; showStreamDialog = true },
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Stream torrent") },
+                                    leadingIcon = { Icon(Icons.Rounded.Download, null) },
+                                    onClick = { showMoreMenu = false; showTorrentDialog = true },
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Refresh") },
                                     leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
                                     onClick = { showMoreMenu = false; reloadTick++ },
@@ -321,6 +329,16 @@ fun LibraryScreen() {
             onPlay = { url ->
                 showStreamDialog = false
                 context.startActivity(PlayerActivity.intent(context, listOf(url.toUri()), listOf(url), 0))
+            },
+        )
+    }
+
+    if (showTorrentDialog) {
+        TorrentDialog(
+            onDismiss = { showTorrentDialog = false },
+            onOpen = { source ->
+                showTorrentDialog = false
+                context.startActivity(TorrentActivity.intent(context, source))
             },
         )
     }
@@ -559,6 +577,44 @@ private fun StreamDialog(onDismiss: () -> Unit, onPlay: (String) -> Unit) {
             )
         },
         confirmButton = { TextButton(onClick = { onPlay(url) }, enabled = valid) { Text("Play") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun TorrentDialog(onDismiss: () -> Unit, onOpen: (String) -> Unit) {
+    var link by remember { mutableStateOf("") }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onOpen(uri.toString())
+    }
+    val valid = link.startsWith("magnet:", ignoreCase = true) ||
+        link.startsWith("http://", ignoreCase = true) || link.startsWith("https://", ignoreCase = true)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Stream torrent") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = link,
+                    onValueChange = { link = it.trim() },
+                    label = { Text("Magnet link or .torrent URL") },
+                    placeholder = { Text("magnet:?xt=urn:btih:…") },
+                    singleLine = true,
+                )
+                TextButton(onClick = { filePicker.launch(arrayOf("application/x-bittorrent", "application/octet-stream", "*/*")) }) {
+                    Icon(Icons.Rounded.Folder, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Choose a .torrent file")
+                }
+                Text(
+                    "Plays while it downloads. The download is deleted when you close the video. " +
+                        "Only stream content you have the right to.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onOpen(link) }, enabled = valid) { Text("Open") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

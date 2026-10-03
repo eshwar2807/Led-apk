@@ -32,6 +32,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        // libtorrent is ~16 MB per ABI uncompressed; store it compressed so the APK stays
+        // small to download, at the cost of extracting it once at install time.
+        jniLibs.useLegacyPackaging = true
+    }
 }
 
 dependencies {
@@ -54,5 +60,15 @@ dependencies {
     implementation(libs.androidx.media3.effect)
     implementation(libs.androidx.exifinterface)
 
+    // BitTorrent engine for streaming torrents and magnet links. Native builds for phones
+    // only (arm64 and 32-bit arm); add the x86_64 artifact to run it on an emulator.
+    implementation(libs.libtorrent4j)
+    implementation(libs.libtorrent4j.android.arm64)
+    implementation(libs.libtorrent4j.android.arm)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // JVM tests stream a real torrent between two local libtorrent sessions.
+    testImplementation(libs.junit)
+    testImplementation(libs.libtorrent4j.linux)
 }

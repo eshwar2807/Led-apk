@@ -24,8 +24,11 @@ class PlaybackPrefs(context: Context) {
             } else {
                 putLong(key(uri), positionMs)
             }
-            putString(LAST_URI, uri.toString())
-            putString(LAST_TITLE, title)
+            // A torrent only exists while it's streaming, so it can't be "continued" later.
+            if (uri.scheme != "torrent") {
+                putString(LAST_URI, uri.toString())
+                putString(LAST_TITLE, title)
+            }
         }
     }
 

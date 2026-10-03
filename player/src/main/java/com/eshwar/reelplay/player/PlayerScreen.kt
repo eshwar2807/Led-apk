@@ -104,7 +104,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.eshwar.reelplay.torrent.TorrentEngine
+import com.eshwar.reelplay.torrent.describe
 import com.eshwar.reelplay.ui.formatDuration
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.abs
@@ -187,6 +191,17 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
     fun flash(h: GestureHint) {
         hint = h
         hintTick++
+    }
+
+    // Torrent download numbers, refreshed once a second while one is playing.
+    var torrentLine by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(player) {
+        while (true) {
+            // Player state is main-thread only; just the libtorrent query goes to IO.
+            val stream = player.currentMediaItem?.localConfiguration?.uri?.let(TorrentEngine::stream)
+            torrentLine = stream?.let { withContext(Dispatchers.IO) { it.stats() } }?.let(::describe)
+            delay(1000)
+        }
     }
 
     // Position ticker.
@@ -400,6 +415,21 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                 Modifier.fillMaxWidth().align(Alignment.TopCenter),
                 color = MaterialTheme.colorScheme.primary,
             )
+            // When a torrent stalls, say why instead of spinning silently.
+            if (!controlsVisible) {
+                torrentLine?.let {
+                    Text(
+                        "Waiting for torrent data · $it",
+                        color = Color.White, fontSize = 12.sp,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
+                            .padding(16.dp)
+                            .background(Color(0x99000000), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+            }
         }
 
         // Gesture readout in the middle of the screen.
@@ -490,10 +520,18 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                         IconButton(onClick = host::close) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
                         }
-                        Text(
-                            title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium,
-                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            torrentLine?.let {
+                                Text(
+                                    it, color = Color(0xCCFFFFFF), fontSize = 11.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                         BarButton(Icons.Rounded.Audiotrack, "Audio track") { poke(); dialog = PlayerDialog.AUDIO }
                         BarButton(Icons.Rounded.ClosedCaption, "Subtitles") { poke(); dialog = PlayerDialog.SUBTITLES }
                         BarButton(Icons.Rounded.Speed, "Speed") { poke(); dialog = PlayerDialog.SPEED }
