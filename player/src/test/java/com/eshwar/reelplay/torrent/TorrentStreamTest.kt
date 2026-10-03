@@ -61,7 +61,7 @@ class TorrentStreamTest {
         val built = TorrentBuilder().path(pack).pieceSize(256 * 1024).generate()
         val torrentBytes = built.entry().bencode()
         val info = TorrentInfo(torrentBytes)
-        val meta = TorrentMeta(info, torrentBytes)
+        val meta = TorrentMeta.parse(torrentBytes)
         val file = meta.videoFiles.single()
         assertEquals("movie.mp4", file.name)
 
@@ -78,10 +78,11 @@ class TorrentStreamTest {
         val leecher = session(seedPort + 1)
         val dir = File(root, "leech").apply { mkdirs() }
         val priorities = Array(meta.files.size) { if (it == file.index) Priority.DEFAULT else Priority.IGNORE }
-        leecher.download(
-            info, dir, null, priorities, listOf(TcpEndpoint("127.0.0.1", seedPort)), TorrentFlags.SEQUENTIAL_DOWNLOAD,
+        // The app's own add path (trackers, priorities, flags), plus the seeder as a known peer.
+        val handle = TorrentEngine.addTorrent(
+            leecher, meta, dir, priorities, TorrentFlags.SEQUENTIAL_DOWNLOAD, listOf(TcpEndpoint("127.0.0.1", seedPort)),
         )
-        val stream = TorrentStream(awaitHandle(leecher, info), meta, file, File(dir, file.path), ownsTorrent = true)
+        val stream = TorrentStream(handle, meta, file, File(dir, file.path), ownsTorrent = true)
         stream.primeEnds()
 
         // Like a player: header first, then the tail (MP4 index), then seek into the middle.
@@ -125,7 +126,7 @@ class TorrentStreamTest {
         File(pack, "b_movie.mkv").writeBytes(wanted)
         val torrentBytes = TorrentBuilder().path(pack).pieceSize(256 * 1024).generate().entry().bencode()
         val info = TorrentInfo(torrentBytes)
-        val meta = TorrentMeta(info, torrentBytes)
+        val meta = TorrentMeta.parse(torrentBytes)
         val chosen = meta.files.single { it.name == "b_movie.mkv" }
 
         val seedPort = 47600 + Random.nextInt(300)
@@ -138,8 +139,9 @@ class TorrentStreamTest {
         val leecher = session(seedPort + 1)
         val dir = File(root, "leech").apply { mkdirs() }
         val priorities = Array(meta.files.size) { if (it == chosen.index) Priority.DEFAULT else Priority.IGNORE }
-        leecher.download(info, dir, null, priorities, listOf(TcpEndpoint("127.0.0.1", seedPort)), torrent_flags_t())
-        val handle = awaitHandle(leecher, info)
+        val handle = TorrentEngine.addTorrent(
+            leecher, meta, dir, priorities, peers = listOf(TcpEndpoint("127.0.0.1", seedPort)),
+        )
         handle.unsetFlags(TorrentFlags.AUTO_MANAGED)
         handle.pause()
 
@@ -156,6 +158,62 @@ class TorrentStreamTest {
         // The skipped file never gets written out in full.
         val extra = File(dir, meta.files.single { it.name == "a_extra.bin" }.path)
         assertTrue(!extra.exists() || extra.length() < 3 * 1024 * 1024)
+    }
+
+    @Test
+    fun tunedSettingsTakeEffect() {
+        val s = TorrentEngine.mobileSettings()
+        assertEquals(1500, s.getInteger(settings_pack.int_types.max_out_request_queue.swigValue()))
+        assertEquals(80, s.getInteger(settings_pack.int_types.connection_speed.swigValue()))
+        assertEquals(400, s.connectionsLimit())
+        assertTrue(s.getBoolean(settings_pack.bool_types.announce_to_all_trackers.swigValue()))
+    }
+
+    /**
+     * libtorrent 2.1 keeps trackers out of TorrentInfo, so adding a torrent from its
+     * TorrentInfo alone (SessionManager.download) silently drops them all. The app's add path
+     * must keep the torrent's own trackers, add the public ones, and leave private torrents alone.
+     */
+    @Test
+    fun addedTorrentsKeepTheirTrackers_andOnlyPublicOnesGainMore() {
+        val s = session(47900 + Random.nextInt(50))
+        val own = "udp://own.tracker.example:80/announce"
+        for (private in listOf(false, true)) {
+            val dir = File(root, "trk-$private").apply { mkdirs() }
+            File(dir, "a.mkv").writeBytes(Random(5).nextBytes(300_000))
+            val bytes = TorrentBuilder().path(dir).setPrivate(private).addTracker(own).generate().entry().bencode()
+            val meta = TorrentMeta.parse(bytes)
+            assertEquals(listOf(own), meta.trackers)
+
+            val handle = TorrentEngine.addTorrent(s, meta, File(root, "trk-out-$private"), arrayOf(Priority.DEFAULT))
+            val urls = handle.trackers().map { it.url() }
+            if (private) {
+                assertEquals(listOf(own), urls)
+            } else {
+                assertEquals((listOf(own) + TorrentEngine.PUBLIC_TRACKERS).toSet(), urls.toSet())
+            }
+            // Adding again hands back the same torrent rather than a duplicate.
+            assertEquals(handle, TorrentEngine.addTorrent(s, meta, File(root, "trk-out-$private"), arrayOf(Priority.DEFAULT)))
+        }
+    }
+
+    @Test
+    fun magnetTrackersAreKept() {
+        val magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=x&tr=" +
+            java.net.URLEncoder.encode("udp://from.magnet.example:6969/announce", "UTF-8")
+        assertEquals(listOf("udp://from.magnet.example:6969/announce"), TorrentMeta.magnetTrackers(magnet))
+    }
+
+    @Test
+    fun magnetsGainPublicTrackersWithoutDuplicates() {
+        val own = TorrentEngine.PUBLIC_TRACKERS.first()
+        val magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=x&tr=" +
+            java.net.URLEncoder.encode(own, "UTF-8")
+        val out = TorrentEngine.withPublicTrackers(magnet)
+        val trackers = Regex("[?&]tr=([^&]*)").findAll(out).map { java.net.URLDecoder.decode(it.groupValues[1], "UTF-8") }.toList()
+        assertEquals(TorrentEngine.PUBLIC_TRACKERS.toSet(), trackers.toSet())
+        assertEquals(trackers.size, trackers.toSet().size)
+        assertEquals(out, TorrentEngine.withPublicTrackers(out))
     }
 
     @Test
@@ -185,9 +243,12 @@ class TorrentStreamTest {
     }
 
     private fun session(port: Int): SessionManager {
-        val settings = SettingsPack().listenInterfaces("127.0.0.1:$port")
+        // The app's tuned settings, minus anything that reaches outside this machine.
+        val settings = TorrentEngine.mobileSettings().listenInterfaces("127.0.0.1:$port")
         settings.setEnableDht(false)
         settings.setEnableLsd(false)
+        settings.setBoolean(settings_pack.bool_types.enable_upnp.swigValue(), false)
+        settings.setBoolean(settings_pack.bool_types.enable_natpmp.swigValue(), false)
         settings.setBoolean(settings_pack.bool_types.allow_multiple_connections_per_ip.swigValue(), true)
         return SessionManager(false).also {
             // The phone's setup (posix disk I/O), so these tests cover the same storage path.

@@ -28,9 +28,7 @@ import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionHandle
 import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
-import org.libtorrent4j.TorrentInfo
 import org.libtorrent4j.TorrentStatus
-import org.libtorrent4j.swig.torrent_flags_t
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -63,6 +61,8 @@ data class DownloadRecord(
     val error: String? = null,
     /** Where the files were saved, for display. */
     val location: String? = null,
+    /** Trackers from the magnet link, which the saved .torrent doesn't contain. */
+    val trackers: List<String> = emptyList(),
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name)
@@ -70,6 +70,7 @@ data class DownloadRecord(
         .put("totalBytes", totalBytes).put("addedAt", addedAt)
         .put("paused", paused).put("done", done)
         .put("error", error).put("location", location)
+        .put("trackers", JSONArray(trackers))
         .put(
             "saved",
             JSONArray(saved.map { JSONObject().put("name", it.name).put("uri", it.uri).put("mime", it.mime) }),
@@ -86,6 +87,7 @@ data class DownloadRecord(
             done = o.optBoolean("done"),
             error = o.optString("error").takeIf { it.isNotEmpty() && it != "null" },
             location = o.optString("location").takeIf { it.isNotEmpty() && it != "null" },
+            trackers = o.optJSONArray("trackers")?.let { a -> List(a.length()) { a.getString(it) } }.orEmpty(),
             saved = o.optJSONArray("saved")?.let { a ->
                 List(a.length()) {
                     val s = a.getJSONObject(it)
@@ -157,7 +159,7 @@ object TorrentDownloads {
         records.values.filter { !it.done }.forEach { record ->
             try {
                 val bytes = torrentFile(record.id).readBytes()
-                val meta = TorrentMeta(TorrentInfo(bytes), bytes)
+                val meta = TorrentMeta.parse(bytes, record.trackers)
                 metas[record.id] = meta
                 addToSession(record, meta)
             } catch (e: Exception) {
@@ -190,6 +192,7 @@ object TorrentDownloads {
             selected = selected.sorted(),
             totalBytes = selected.sumOf { meta.files[it].size },
             addedAt = System.currentTimeMillis(),
+            trackers = meta.trackers,
         )
         synchronized(lock) {
             records.remove(record.id) // A finished copy of the same torrent is replaced.
@@ -206,8 +209,7 @@ object TorrentDownloads {
         val s = TorrentEngine.session(appContext)
         val priorities = Array(meta.files.size) { if (it in record.selected) Priority.DEFAULT else Priority.IGNORE }
         val dir = dataDir(record.id).apply { mkdirs() }
-        s.download(meta.info, dir, null, priorities, null, torrent_flags_t())
-        val handle = TorrentEngine.awaitHandle(s, meta)
+        val handle = TorrentEngine.addTorrent(s, meta, dir, priorities)
         // Pause and resume are the user's call, not libtorrent's queue manager's.
         handle.unsetFlags(TorrentFlags.AUTO_MANAGED)
         if (record.paused) handle.pause() else handle.resume()

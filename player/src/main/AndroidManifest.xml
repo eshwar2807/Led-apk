@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Keep Wi-Fi at full speed and the CPU awake while torrents download, screen off. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Installing its own updates from the ReelPlay update server. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

@@ -99,6 +99,19 @@ come from the same composition.
   covers crashes Java can't catch. After such a stop, unfinished downloads come back paused,
   so a download that caused the crash can't crash every launch.
 
+**Speed**
+- Torrents are added with their trackers and web seeds (`TorrentEngine.addTorrent`).
+  libtorrent 2.1 no longer keeps trackers inside `TorrentInfo`, so libtorrent4j's
+  `SessionManager.download(TorrentInfo, …)` silently dropped all of them and torrents found
+  peers through DHT alone. Trackers from magnet links are kept too, including across restarts.
+- Public torrents and magnet links also announce to a handful of large open trackers; private
+  torrents never do.
+- Tuned for parallelism: up to 400 peer connections, 80 new connections a second, 1,500
+  outstanding block requests per peer, announces to every tracker at once, UPnP/NAT-PMP port
+  mapping and uTP, multi-core piece hashing.
+- While downloads run, the background service holds a Wi-Fi lock and a partial wake lock
+  (6-hour cap, renewed while active), so speed doesn't collapse with the screen off.
+
 **Torrent engine**
 - Built on [libtorrent4j](https://github.com/aldenml/libtorrent4j) (libtorrent 2.0), DHT and
   local peer discovery on. Native code is included for arm64 and 32-bit arm phones; the

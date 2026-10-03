@@ -1,6 +1,4 @@
-- Thin seek bar, Netflix red by default; pick another colour in Settings
-- Torrent streaming waits until it can play through without stopping
-- Download torrents and magnet links to keep
-- Fixes crashes with large torrents and with Continue watching
-- Automatic update checks
-- Clearer messages when checking for updates and installing them
+- Much faster torrents: trackers from .torrent files and magnet links are now actually used (they were being dropped, leaving only DHT to find peers)
+- Connects to more peers at once and keeps each one busier
+- Adds well-known public trackers to public torrents and magnet links, so peers turn up sooner
+- Downloads keep full speed with the screen off
