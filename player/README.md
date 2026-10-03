@@ -11,7 +11,10 @@ come from the same composition.
 
 **Library**
 - Every video on the phone, grouped by folder or as one list, read from MediaStore.
-- Sort by date, name, size or length; search by name.
+- Sort by title, date added, last played, length, size or resolution, each either way round
+  (oldest/newest, A–Z/Z–A, …), and filter to unplayed, partly watched, played or recently
+  added/played videos. The choice is remembered; search by name.
+- Each video shows when it was added and when it was last played.
 - Thumbnails with duration and a resume-progress strip, "Continue watching" banner.
 - Per-video menu: play, edit, share, properties, delete (Android 11+, via the system dialog).
 - Network stream: paste an `http(s)` link to an MP4/WebM file.
@@ -20,7 +23,8 @@ come from the same composition.
 **Gestures**
 - Swipe up/down on the **left** half for brightness, on the **right** half for volume.
   Keep going past 100% for a **volume boost** up to 200% (LoudnessEnhancer, +12 dB).
-- Swipe left/right to seek (about 90 s per screen width), with a live readout.
+- Swipe left/right to seek (about 90 s per screen width). Seeking is live: the picture follows
+  the swipe (and the seek bar while dragged) using ExoPlayer's scrubbing mode.
 - Double-tap left/right third to skip ±10 s, double-tap the middle to pause/play.
 - Pinch to zoom (50–400%).
 
@@ -39,6 +43,12 @@ come from the same composition.
 - Picture-in-picture (auto-enters on Home while playing on Android 12+).
 - Remembers where you left each video; next/previous through the folder.
 - **Edit** button sends the current video straight into the editor.
+
+**Find videos on a page**
+- Library ⋮ → **Find videos on a page**, or share a page from the browser to ReelPlay: lists the
+  video files, HLS/DASH streams, `.torrent` files and magnet links in the page, each with Play
+  and Download (files go to Download/ReelPlay via Android's download manager; torrents open the
+  torrent screen). Only what's in the page's HTML: players built by script won't show up.
 
 **Torrents and magnet links**
 - Library ⋮ → **Open torrent / magnet**: paste a magnet link or a `.torrent` URL, or pick a
@@ -67,6 +77,10 @@ come from the same composition.
   is waiting for data.
 - Closing the video stops the torrent and **deletes what it downloaded**. Leftovers from a
   killed app are cleared the next time a torrent starts.
+- Peers are connected over TCP. libtorrent tries uTP first by default, and its uTP capped
+  each connection at about 4 MB/s against 70+ MB/s over TCP in the same local test
+  (`downloadsAtFullSpeed` guards this). Incoming uTP connections are still accepted.
+
 **Torrent downloads**
 - Tick the files to keep (all by default) and tap **Download**. Library ⋮ → **Downloads**
   lists everything with progress, speed, peers and time left.

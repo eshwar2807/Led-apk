@@ -155,11 +155,17 @@ object TorrentEngine {
             // Ask every tracker for peers at once instead of one tier after another.
             setBoolean(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true)
             setBoolean(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true)
-            // Let peers reach us too (router port mapping), over both TCP and uTP.
+            // Let peers reach us too (router port mapping).
             setBoolean(settings_pack.bool_types.enable_upnp.swigValue(), true)
             setBoolean(settings_pack.bool_types.enable_natpmp.swigValue(), true)
+            // Connect out over TCP only. libtorrent otherwise tries uTP first with nearly every
+            // peer, and its uTP backs off so readily that each connection tops out at a few MB/s
+            // (measured: 4 MB/s over uTP vs 70+ MB/s over TCP, same machine and settings).
+            // Peers that can only reach us over uTP are still accepted.
+            setBoolean(settings_pack.bool_types.enable_outgoing_utp.swigValue(), false)
             setBoolean(settings_pack.bool_types.enable_incoming_utp.swigValue(), true)
-            setBoolean(settings_pack.bool_types.enable_outgoing_utp.swigValue(), true)
+            setBoolean(settings_pack.bool_types.enable_outgoing_tcp.swigValue(), true)
+            setBoolean(settings_pack.bool_types.enable_incoming_tcp.swigValue(), true)
             setBoolean(settings_pack.bool_types.smooth_connects.swigValue(), false)
         }
 

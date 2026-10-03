@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -97,6 +98,7 @@ import com.eshwar.reelplay.torrent.DownloadsActivity
 import com.eshwar.reelplay.torrent.TorrentActivity
 import com.eshwar.reelplay.torrent.TorrentSourceDialog
 import com.eshwar.reelplay.update.Updates
+import com.eshwar.reelplay.web.FindVideosActivity
 import kotlinx.coroutines.launch
 import com.eshwar.reelplay.ui.formatDuration
 import com.eshwar.reelplay.ui.canRead
@@ -131,7 +133,9 @@ fun LibraryScreen() {
     var loading by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableIntStateOf(0) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var sort by rememberSaveable { mutableStateOf(SortOrder.DATE) }
+    val viewPrefs = remember { LibraryViewPrefs(context) }
+    var sort by remember { mutableStateOf(viewPrefs.sort) }
+    var filter by remember { mutableStateOf(viewPrefs.filter) }
     var openFolderId by rememberSaveable { mutableStateOf<String?>(null) }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -249,21 +253,6 @@ fun LibraryScreen() {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.AutoMirrored.Rounded.Sort, "Sort")
                             }
-                            DropdownMenu(showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                                SortOrder.entries.forEach { order ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                order.label,
-                                                fontWeight = if (order == sort) FontWeight.Bold else null,
-                                                color = if (order == sort) MaterialTheme.colorScheme.primary
-                                                else Color.Unspecified,
-                                            )
-                                        },
-                                        onClick = { sort = order; showSortMenu = false },
-                                    )
-                                }
-                            }
                         }
                         Box {
                             IconButton(onClick = { showMoreMenu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
@@ -277,6 +266,14 @@ fun LibraryScreen() {
                                     text = { Text("Open torrent / magnet") },
                                     leadingIcon = { Icon(Icons.Rounded.Link, null) },
                                     onClick = { showMoreMenu = false; showTorrentDialog = true },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Find videos on a page") },
+                                    leadingIcon = { Icon(Icons.Rounded.TravelExplore, null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        context.startActivitySafely(FindVideosActivity.intent(context))
+                                    },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Downloads") },
@@ -329,13 +326,35 @@ fun LibraryScreen() {
                 return@Column
             }
 
-            val filtered = remember(videos, query, sort) {
-                sort.sort(videos.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) })
+            // Read once per refresh; the player updates these while it's open.
+            val playedTimes = remember(progressTick) { prefs.playedTimes() }
+            val resumes = remember(progressTick) { prefs.resumePositions() }
+            val playedAt: (VideoItem) -> Long = { playedTimes[it.uri.toString()] ?: 0L }
+            fun arrange(list: List<VideoItem>): List<VideoItem> {
+                val now = System.currentTimeMillis()
+                return sort.sort(
+                    list.filter {
+                        (query.isBlank() || it.name.contains(query, ignoreCase = true)) &&
+                            filter.matches(it, playedAt(it), resumes[it.uri.toString()] ?: 0L, now)
+                    },
+                    playedAt,
+                )
+            }
+            val filtered = remember(videos, query, sort, filter, playedTimes) { arrange(videos) }
+            val shownFolders = remember(folders, sort, filter, playedTimes) {
+                sort.sortFolders(
+                    folders.mapNotNull { f -> arrange(f.videos).takeIf { it.isNotEmpty() }?.let { f.copy(videos = it) } },
+                    playedAt,
+                )
+            }
+
+            if (filter != PlayFilter.ALL || sort != LibrarySort()) {
+                SortSummary(sort, filter, onClick = { showSortMenu = true })
             }
 
             when {
-                searching -> VideoList(filtered, prefs, progressTick, actions)
-                openFolder != null -> VideoList(sort.sort(openFolder.videos), prefs, progressTick, actions)
+                searching -> VideoList(filtered, prefs, playedTimes, progressTick, actions)
+                openFolder != null -> VideoList(arrange(openFolder.videos), prefs, playedTimes, progressTick, actions)
                 else -> {
                     // Only offer to continue something we can still open: access can be lost
                     // (limited media access, the file deleted, a one-off grant from another app).
@@ -363,13 +382,27 @@ fun LibraryScreen() {
                     if (!loading && videos.isEmpty()) {
                         EmptyState()
                     } else if (tab == 0) {
-                        FolderList(folders) { openFolderId = it.id }
+                        FolderList(shownFolders) { openFolderId = it.id }
                     } else {
-                        VideoList(filtered, prefs, progressTick, actions)
+                        VideoList(filtered, prefs, playedTimes, progressTick, actions)
                     }
                 }
             }
         }
+    }
+
+    if (showSortMenu) {
+        SortDialog(
+            sort, filter,
+            onDismiss = { showSortMenu = false },
+            onApply = { newSort, newFilter ->
+                sort = newSort
+                filter = newFilter
+                viewPrefs.sort = newSort
+                viewPrefs.filter = newFilter
+                showSortMenu = false
+            },
+        )
     }
 
     if (showStreamDialog) {
@@ -407,6 +440,12 @@ fun LibraryScreen() {
                     InfoRow(
                         "Added",
                         java.text.DateFormat.getDateTimeInstance().format(java.util.Date(video.dateAddedSec * 1000)),
+                    )
+                    val playedAt = remember(video) { prefs.playedTimes()[video.uri.toString()] ?: 0L }
+                    InfoRow(
+                        "Last played",
+                        if (playedAt > 0) java.text.DateFormat.getDateTimeInstance().format(java.util.Date(playedAt))
+                        else "Never",
                     )
                 }
             },
@@ -530,20 +569,30 @@ private fun FolderList(folders: List<VideoFolder>, onOpen: (VideoFolder) -> Unit
 private fun VideoList(
     videos: List<VideoItem>,
     prefs: PlaybackPrefs,
+    playedTimes: Map<String, Long>,
     progressTick: Int,
     actions: VideoActions,
 ) {
+    if (videos.isEmpty()) {
+        Text(
+            "No videos match this filter.",
+            Modifier.fillMaxWidth().padding(32.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
     LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
         items(videos.size, key = { videos[it].id }) { index ->
             val video = videos[index]
             val progress = remember(video.uri, progressTick) { prefs.progress(video.uri, video.durationMs) }
-            VideoRow(video, progress, onClick = { actions.play(videos, index) }, actions = actions)
+            val playedAt = playedTimes[video.uri.toString()] ?: 0L
+            VideoRow(video, progress, playedAt, onClick = { actions.play(videos, index) }, actions = actions)
         }
     }
 }
 
 @Composable
-private fun VideoRow(video: VideoItem, progress: Float, onClick: () -> Unit, actions: VideoActions) {
+private fun VideoRow(video: VideoItem, progress: Float, playedAt: Long, onClick: () -> Unit, actions: VideoActions) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -577,6 +626,14 @@ private fun VideoRow(video: VideoItem, progress: Float, onClick: () -> Unit, act
                 formatSize(video.sizeBytes) + res,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Added ${formatDay(video.dateAddedSec * 1000)}" +
+                    if (playedAt > 0) " · Played ${formatWhen(playedAt)}" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         Box {

@@ -172,6 +172,42 @@ class TorrentStreamTest {
         assertEquals(80, s.getInteger(settings_pack.int_types.connection_speed.swigValue()))
         assertEquals(400, s.connectionsLimit())
         assertTrue(s.getBoolean(settings_pack.bool_types.announce_to_all_trackers.swigValue()))
+        assertTrue(!s.getBoolean(settings_pack.bool_types.enable_outgoing_utp.swigValue()))
+    }
+
+    /**
+     * An unthrottled download with the app's settings must run at TCP speed. Over uTP (which
+     * libtorrent tries first unless told not to) this same transfer manages about 4 MB/s.
+     */
+    @Test(timeout = 180_000)
+    fun downloadsAtFullSpeed() {
+        val pack = File(root, "seed/pack").apply { mkdirs() }
+        // Written in chunks: one 96 MB array makes the GC finalize libtorrent4j's native
+        // wrappers mid-test, which can crash the JVM.
+        val size = 96L * 1024 * 1024
+        val chunks = Random(5)
+        File(pack, "big.mkv").outputStream().use { out -> repeat(96) { out.write(chunks.nextBytes(1024 * 1024)) } }
+        val torrentBytes = TorrentBuilder().path(pack).pieceSize(1024 * 1024).generate().entry().bencode()
+        val info = TorrentInfo(torrentBytes)
+        val meta = TorrentMeta.parse(torrentBytes)
+
+        val seedPort = 47900 + Random.nextInt(50)
+        val seeder = session(seedPort)
+        seeder.download(info, File(root, "seed"))
+        val seedHandle = awaitHandle(seeder, info)
+        waitUntil(60_000) { seedHandle.status().state() == TorrentStatus.State.SEEDING }
+
+        val leecher = session(seedPort + 1)
+        val dir = File(root, "leech").apply { mkdirs() }
+        val start = System.nanoTime()
+        val handle = TorrentEngine.addTorrent(
+            leecher, meta, dir, arrayOf(Priority.DEFAULT), peers = listOf(TcpEndpoint("127.0.0.1", seedPort)),
+        )
+        handle.unsetFlags(TorrentFlags.AUTO_MANAGED)
+        handle.resume()
+        waitUntil(120_000) { handle.status().isFinished }
+        val mbPerSec = size / 1e6 / ((System.nanoTime() - start) / 1e9)
+        assertTrue("only ${"%.1f".format(mbPerSec)} MB/s", mbPerSec > 15)
     }
 
     /**

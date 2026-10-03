@@ -348,6 +348,9 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                             DragMode.SEEK -> {
                                                 seekStart = player.currentPosition
                                                 seekTarget = seekStart
+                                                // Scrubbing mode decodes frames as fast as the finger
+                                                // moves, so the picture follows the swipe live.
+                                                player.isScrubbingModeEnabled = true
                                             }
                                             DragMode.BRIGHTNESS -> brightness = host.currentBrightness()
                                             DragMode.VOLUME -> {
@@ -365,6 +368,7 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                                 val span = 90_000f
                                                 seekTarget = (seekStart + totalX / size.width * span).toLong()
                                                     .coerceIn(0L, duration.coerceAtLeast(0L))
+                                                player.seekTo(seekTarget)
                                                 val diff = seekTarget - seekStart
                                                 val sign = if (diff >= 0) "+" else "−"
                                                 hint = GestureHint(
@@ -402,7 +406,10 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                     }
                                 }
                             } while (event.changes.any { it.pressed })
-                            if (mode == DragMode.SEEK) player.seekTo(seekTarget)
+                            if (mode == DragMode.SEEK) {
+                                player.seekTo(seekTarget)
+                                player.isScrubbingModeEnabled = false
+                            }
                             if (mode != DragMode.NONE) {
                                 dragMode = DragMode.NONE
                                 hint = hint?.copy(sticky = false)
@@ -638,11 +645,15 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                 color = accent,
                                 onSeeking = {
                                     poke()
+                                    if (scrubbing == null) player.isScrubbingModeEnabled = true
                                     scrubbing = it
+                                    // Live: the video follows the thumb while it's dragged.
+                                    player.seekTo((it * duration).toLong())
                                 },
                                 onSeek = {
                                     poke()
                                     player.seekTo((it * duration).toLong())
+                                    player.isScrubbingModeEnabled = false
                                     position = (it * duration).toLong()
                                     scrubbing = null
                                 },

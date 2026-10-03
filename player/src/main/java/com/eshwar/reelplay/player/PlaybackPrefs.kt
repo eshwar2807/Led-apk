@@ -5,7 +5,7 @@ import android.net.Uri
 import androidx.core.content.edit
 import androidx.core.net.toUri
 
-/** Remembers where each video was left off, plus the last thing played, MX-style. */
+/** Remembers where each video was left off and when it was last played, MX-style. */
 class PlaybackPrefs(context: Context) {
 
     private val prefs = context.getSharedPreferences("playback", Context.MODE_PRIVATE)
@@ -26,11 +26,22 @@ class PlaybackPrefs(context: Context) {
             }
             // A torrent only exists while it's streaming, so it can't be "continued" later.
             if (uri.scheme != "torrent") {
+                putLong(playedKey(uri), System.currentTimeMillis())
                 putString(LAST_URI, uri.toString())
                 putString(LAST_TITLE, title)
             }
         }
     }
+
+    /** When each video was last played (epoch ms), keyed by URI string; one read for a whole list. */
+    fun playedTimes(): Map<String, Long> = prefs.all.mapNotNull { (k, v) ->
+        if (k.startsWith(PLAYED) && v is Long) k.removePrefix(PLAYED) to v else null
+    }.toMap()
+
+    /** Saved resume positions, keyed by URI string. */
+    fun resumePositions(): Map<String, Long> = prefs.all.mapNotNull { (k, v) ->
+        if (k.startsWith(POS) && v is Long) k.removePrefix(POS) to v else null
+    }.toMap()
 
     val lastPlayed: Pair<Uri, String>?
         get() {
@@ -47,11 +58,14 @@ class PlaybackPrefs(context: Context) {
         get() = prefs.getFloat(SPEED, 1f)
         set(value) = prefs.edit { putFloat(SPEED, value) }
 
-    private fun key(uri: Uri) = "pos:$uri"
+    private fun key(uri: Uri) = "$POS$uri"
+    private fun playedKey(uri: Uri) = "$PLAYED$uri"
 
     private companion object {
         const val LAST_URI = "last_uri"
         const val LAST_TITLE = "last_title"
         const val SPEED = "speed"
+        const val POS = "pos:"
+        const val PLAYED = "played:"
     }
 }

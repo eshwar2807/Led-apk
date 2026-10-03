@@ -29,7 +29,8 @@ import androidx.compose.ui.unit.dp
  * 32 dp tall even though the line is thin.
  *
  * [value] and [buffered] are fractions 0..1. [onSeeking] reports the position while the finger
- * is down; [onSeek] fires once on release (or tap) with the final position.
+ * is down (callers seek live from it); [onSeek] fires once on release (or tap) with the final
+ * position.
  */
 @Composable
 fun SeekBar(
@@ -73,7 +74,10 @@ fun SeekBar(
                         dragging = false
                         onSeek(dragValue)
                     },
-                    onDragCancel = { dragging = false },
+                    onDragCancel = {
+                        dragging = false
+                        onSeek(dragValue)
+                    },
                 )
             },
     ) {
