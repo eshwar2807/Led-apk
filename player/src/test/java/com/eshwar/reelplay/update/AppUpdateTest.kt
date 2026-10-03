@@ -2,6 +2,7 @@ package com.eshwar.reelplay.update
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
 
@@ -44,5 +45,12 @@ class AppUpdateTest {
         // Well-known SHA-256 of "abc", lowercase hex like update-server writes.
         assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", Updates.sha256(f))
         f.delete()
+    }
+
+    @Test
+    fun explainsServerProblemsInPlainWords() {
+        assertTrue(Updates.explain(Updates.HttpStatusException(404)).contains("no release has been published"))
+        assertTrue(Updates.explain(Updates.HttpStatusException(503)).contains("HTTP 503"))
+        assertTrue(Updates.explain(java.net.SocketTimeoutException()).contains("internet connection"))
     }
 }

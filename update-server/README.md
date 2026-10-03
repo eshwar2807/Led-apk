@@ -30,26 +30,24 @@ and a Google account setup; a 6-hourly check is free and needs nothing else.
 
 ## One-time setup
 
-1. **Create the fly.io app.** Install [flyctl](https://fly.io/docs/flyctl/install/), then:
+1. **Get a fly.io token.** Sign up at fly.io, install
+   [flyctl](https://fly.io/docs/flyctl/install/), then:
 
    ```bash
    fly auth login
-   fly apps create reelplay-updates     # must be unique on fly.io
+   fly tokens create org
    ```
 
-   If the name is taken, choose another and put it in `fly.toml` (`app = "…"`). The release
-   workflow reads it from there and builds the app pointed at `https://<app>.fly.dev/`, so
-   that's the only place to change it. Set `primary_region` to the region nearest your users
-   (`fly platform regions`).
+   Add the token as the repository secret `FLY_API_TOKEN` (Settings → Secrets and variables →
+   Actions). The release workflow creates the fly.io app on its first run.
 
-2. **Give GitHub a deploy token:**
+   The app is named by `app = "…"` in `fly.toml` (default `reelplay-updates`); names are
+   global on fly.io, so if it's taken, pick another there. The workflow builds the phone app
+   pointed at `https://<app>.fly.dev/`, so that line is the only place to change it. Set
+   `primary_region` to the region nearest your users (`fly platform regions`).
 
-   ```bash
-   fly tokens create deploy -a reelplay-updates
-   ```
-
-   Add it as the repository secret `FLY_API_TOKEN` (Settings → Secrets and variables →
-   Actions).
+2. *(Optional, tighter access)* After the first release, swap the org token for a deploy
+   token limited to this app: `fly tokens create deploy -a reelplay-updates`.
 
 3. **Create a release signing key** and keep a backup somewhere safe. Every future update
    must be signed with it, or phones will refuse to install it over the existing app.
@@ -67,6 +65,9 @@ and a Google account setup; a 6-hourly check is free and needs nothing else.
    so Android won't install the first proper release over them. Uninstall once and install
    from `https://<app>.fly.dev/`; every update after that installs in place. (The app
    explains this if it happens.)
+
+Until the first release is published, **Check for updates** in the app reports that the
+update server doesn't exist yet. That's expected.
 
 ## Publishing a release
 

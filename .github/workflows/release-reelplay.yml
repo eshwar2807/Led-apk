@@ -8,7 +8,9 @@ name: Release ReelPlay
 # anything that isn't newer than what's live.
 #
 # Needs these repository secrets (Settings → Secrets and variables → Actions):
-#   FLY_API_TOKEN            `fly tokens create deploy -a <app>` for the app in update-server/fly.toml
+#   FLY_API_TOKEN            `fly tokens create org` (lets this job create the app on the first run;
+#                            a deploy token from `fly tokens create deploy -a <app>` also works once
+#                            the app exists)
 #   RELEASE_KEYSTORE_BASE64  the signing keystore, base64-encoded
 #   RELEASE_STORE_PASSWORD   its password
 #   RELEASE_KEY_ALIAS        the key's alias
@@ -134,6 +136,20 @@ jobs:
         run: go test ./...
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create the fly.io app if it doesn't exist yet
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          app='${{ steps.fly.outputs.app }}'
+          if flyctl status --app "$app" >/dev/null 2>&1; then
+            echo "App $app exists"
+          elif flyctl apps create "$app"; then
+            echo "Created $app"
+          else
+            echo "::error::Couldn't create fly.io app '$app'. The name may be taken (change 'app' in update-server/fly.toml), or FLY_API_TOKEN is a deploy token for another app (use 'fly tokens create org')."
+            exit 1
+          fi
 
       - name: Deploy to fly.io
         working-directory: update-server

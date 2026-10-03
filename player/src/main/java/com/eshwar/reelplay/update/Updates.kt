@@ -16,7 +16,11 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.InetAddress
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.net.URL
 import java.security.MessageDigest
 
@@ -80,7 +84,7 @@ object Updates {
         conn.connectTimeout = 15_000
         conn.readTimeout = 15_000
         try {
-            if (conn.responseCode != 200) throw IOException("Update server returned ${conn.responseCode}")
+            if (conn.responseCode != 200) throw HttpStatusException(conn.responseCode)
             val update = AppUpdate.parse(conn.inputStream.bufferedReader().readText(), url)
             update.takeIf { it.versionCode > BuildConfig.VERSION_CODE }
         } finally {
@@ -89,16 +93,43 @@ object Updates {
     }
 
     /** Checks and publishes the result to [state]. [userAsked] also reports "up to date" and errors. */
-    suspend fun check(userAsked: Boolean) {
+    suspend fun check(userAsked: Boolean) = withContext(Dispatchers.IO) { checkBlocking(userAsked) }
+
+    private suspend fun checkBlocking(userAsked: Boolean) {
         val busy = _state.value
         if (busy is UpdateState.Downloading || busy is UpdateState.Installing) return
         if (userAsked) _state.value = UpdateState.Checking
         _state.value = try {
             fetch()?.let { UpdateState.Available(it) } ?: if (userAsked) UpdateState.UpToDate else UpdateState.Idle
         } catch (e: Exception) {
-            if (userAsked) UpdateState.Failed("Couldn't check for updates: ${e.message}", null) else UpdateState.Idle
+            if (userAsked) UpdateState.Failed(explain(e), null) else UpdateState.Idle
         }
     }
+
+    /** Says what actually went wrong, rather than a raw network exception. */
+    internal fun explain(e: Exception): String {
+        val host = runCatching { URL(BuildConfig.UPDATE_URL).host }.getOrDefault(BuildConfig.UPDATE_URL)
+        return when {
+            e is UnknownHostException && hasInternet() ->
+                "The update server ($host) doesn't exist yet. Updates start working once the first " +
+                    "release is published to it (see update-server/README.md)."
+            e is UnknownHostException || e is ConnectException || e is SocketTimeoutException ->
+                "Couldn't reach the update server. Check your internet connection and try again."
+            e is HttpStatusException && e.code == 404 ->
+                "The update server ($host) is up, but no release has been published to it yet."
+            e is HttpStatusException -> "The update server had a problem (HTTP ${e.code}). Try again later."
+            else -> "Couldn't check for updates: ${e.message}"
+        }
+    }
+
+    /** Whether DNS works at all, to tell "no internet" from "no such server". */
+    private fun hasInternet(): Boolean = try {
+        InetAddress.getByName("dns.google") != null
+    } catch (_: Exception) {
+        false
+    }
+
+    class HttpStatusException(val code: Int) : IOException("Update server returned HTTP $code")
 
     fun dismiss(context: Context) {
         (state.value as? UpdateState.Available)?.let { prefs(context).edit { putInt(DISMISSED, it.update.versionCode) } }
