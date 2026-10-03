@@ -30,6 +30,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.eshwar.reelplay.editor.EditorActivity
@@ -70,6 +71,18 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
         player = ExoPlayer.Builder(this)
             // torrent:// items read straight from the partly downloaded file.
             .setMediaSourceFactory(DefaultMediaSourceFactory(TorrentDataSource.Factory(this)))
+            // After a stall (a slow torrent or network), gather 10 s before resuming rather than
+            // the default 5 s, so playback doesn't stutter stop-start-stop.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                        DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                        10_000,
+                    )
+                    .build(),
+            )
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .setHandleAudioBecomingNoisy(true)

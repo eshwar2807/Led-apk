@@ -48,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -352,35 +353,87 @@ private fun FileRow(file: TorrentFile, onClick: () -> Unit, trailing: (@Composab
     }
 }
 
+/**
+ * Waits until playing can start and then go to the end without stopping: the file's start and
+ * end (container header and index) must be here, plus enough of the beginning that the
+ * download stays ahead of playback at the speed it's actually running (see [StreamReadiness]).
+ * Then it starts by itself. "Play now" is always there for the impatient.
+ */
 @Composable
 private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit, onClose: () -> Unit) {
-    var progress by remember { mutableStateOf(0f) }
     var stats by remember { mutableStateOf<TorrentStats?>(null) }
+    var plan by remember { mutableStateOf<StreamReadiness.Plan?>(null) }
+    var contiguous by remember { mutableLongStateOf(0L) }
+    var durationMs by remember { mutableStateOf<Long?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(stream) {
+        val rates = ArrayDeque<Int>()
+        var probed = false
         while (true) {
-            val ready = withContext(Dispatchers.IO) {
-                progress = stream.startProgress()
-                stats = stream.stats()
-                stream.readyToPlay()
+            val s = withContext(Dispatchers.IO) { stream.stats() }
+            val have = withContext(Dispatchers.IO) { stream.contiguousBytes() }
+            val endsReady = withContext(Dispatchers.IO) { stream.endsReady() }
+            error = withContext(Dispatchers.IO) { stream.error() }
+            stats = s
+            contiguous = have
+            // Average over ~15 s: swarm speed jumps around too much second to second.
+            s?.let { rates.addLast(it.downloadBytesPerSec); if (rates.size > 15) rates.removeFirst() }
+            val rate = if (rates.isEmpty()) 0.0 else rates.average()
+            if (endsReady && !probed) {
+                probed = true
+                durationMs = probeDuration(stream)
             }
-            if (ready) {
+            val p = StreamReadiness.plan(stream.size, durationMs, have, rate)
+            plan = p
+            if (endsReady && p.ready && error == null) {
                 onPlay(stream)
                 return@LaunchedEffect
             }
-            delay(500)
+            delay(1000)
         }
     }
+
     Centered {
         Text(stream.file.name, style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(4.dp))
-        Text(formatSize(stream.size), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            formatSize(stream.size) + (durationMs?.let { " · ${com.eshwar.reelplay.ui.formatDuration(it)}" } ?: ""),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.height(24.dp))
-        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+        val p = plan
+        val fraction = if (p == null || p.neededBytes <= 0) 0f else (contiguous.toFloat() / p.neededBytes).coerceIn(0f, 1f)
+        LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        Text("Buffering ${(progress * 100).toInt()}%")
+        Text(
+            when {
+                error != null -> "Torrent error: $error"
+                p == null -> "Connecting to peers…"
+                p.etaSeconds == null -> "Waiting for peers to send data…"
+                else -> "Ready to play without stopping in about ${com.eshwar.reelplay.ui.formatDuration(p.etaSeconds * 1000)}"
+            },
+            fontWeight = FontWeight.Medium,
+            color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        if (p != null) {
+            Text(
+                "Buffered ${formatSize(contiguous)} of ${formatSize(p.neededBytes)} needed · video plays at " +
+                    "${formatSize(p.bitrate.toLong())}/s${if (p.bitrateGuessed) " (estimated)" else ""}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                if (p.fastEnough) "Downloading faster than it plays — only a short buffer needed."
+                else "Downloading slower than it plays, so more is buffered first to avoid pauses later.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         Spacer(Modifier.height(4.dp))
         Text(
-            stats?.let { describe(it) } ?: "Connecting to peers…",
+            stats?.let { describe(it) } ?: "",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
@@ -391,6 +444,26 @@ private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit
         }
     }
 }
+
+/**
+ * The video's length, read from the partly downloaded file once its header and end are in.
+ * Gives the real bitrate instead of a guess. Null if the container can't be read yet.
+ */
+private suspend fun probeDuration(stream: TorrentStream): Long? =
+    kotlinx.coroutines.withTimeoutOrNull(8_000) {
+        kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+            val r = android.media.MediaMetadataRetriever()
+            try {
+                r.setDataSource(stream.path.absolutePath)
+                r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                    ?.takeIf { it > 0 }
+            } catch (_: Exception) {
+                null
+            } finally {
+                try { r.release() } catch (_: Exception) {}
+            }
+        }
+    }
 
 fun describe(s: TorrentStats): String =
     "↓ ${formatSize(s.downloadBytesPerSec.toLong())}/s · ${s.peers} peers (${s.seeds} seeds) · " +

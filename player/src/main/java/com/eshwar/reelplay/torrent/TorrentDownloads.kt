@@ -6,10 +6,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +33,7 @@ import org.libtorrent4j.TorrentStatus
 import org.libtorrent4j.swig.torrent_flags_t
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 enum class DownloadState(val label: String) {
     STARTING("Starting"),
@@ -122,9 +125,15 @@ object TorrentDownloads {
     private lateinit var appContext: Context
     private val lock = Any()
     private val records = LinkedHashMap<String, DownloadRecord>()
-    private val metas = HashMap<String, TorrentMeta>()
-    private val saving = HashSet<String>()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Touched from the ticker, the UI and the restore thread at once.
+    private val metas = ConcurrentHashMap<String, TorrentMeta>()
+    private val saving: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    // One bad status read must never take the whole app down mid-download.
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.w("TorrentDownloads", "Background download task failed", e)
+        },
+    )
     private var ticker: Job? = null
     @Volatile private var restored = false
 
@@ -137,13 +146,14 @@ object TorrentDownloads {
     private fun registry() = File(dir(), "registry.json")
 
     /** Loads the saved list and restarts unfinished downloads. Blocking; safe to call repeatedly. */
-    fun restore(context: Context) {
+    fun restore(context: Context, startPaused: Boolean = false) {
         synchronized(lock) {
             if (restored) return
             appContext = context.applicationContext
             restored = true
-            readRegistry().forEach { records[it.id] = it }
+            readRegistry().forEach { records[it.id] = if (startPaused && !it.done) it.copy(paused = true) else it }
         }
+        if (startPaused) persist()
         records.values.filter { !it.done }.forEach { record ->
             try {
                 val bytes = torrentFile(record.id).readBytes()
@@ -171,6 +181,8 @@ object TorrentDownloads {
                 if (!existing.done) throw IOException("This torrent is already in Downloads")
             }
         }
+        // Everything chosen has to fit, with room to spare, or libtorrent stalls with a full disk.
+        TorrentEngine.requireSpace(context, selected.sumOf { meta.files[it].size })
         torrentFile(meta.infoHash).writeBytes(meta.bytes)
         val record = DownloadRecord(
             id = meta.infoHash,
@@ -265,7 +277,11 @@ object TorrentDownloads {
             if (ticker?.isActive == true) return
             ticker = scope.launch {
                 while (isActive) {
-                    publish()
+                    try {
+                        publish()
+                    } catch (e: Exception) {
+                        Log.w("TorrentDownloads", "Progress update failed", e)
+                    }
                     // Nothing moving: stop ticking until a download is added or resumed.
                     if (_items.value.none { it.isActive }) break
                     delay(1000)
@@ -337,7 +353,7 @@ object TorrentDownloads {
                 torrentFile(record.id).delete()
                 update(record.id) { it.copy(done = true, saved = result.files, location = result.location, error = null) }
                 onFinished?.invoke(record.name)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 update(record.id) { it.copy(error = "Couldn't save: ${e.message}") }
             } finally {
                 synchronized(lock) { saving.remove(record.id) }
@@ -384,7 +400,10 @@ private object DownloadSaver {
 
     fun save(context: Context, meta: TorrentMeta, selected: List<Int>, from: File): Result {
         val folder = "ReelPlay/" + clean(meta.name)
-        var keptInApp = false
+        // Copying out needs the same space again. If it isn't there (a 14 GB film on a full
+        // phone), keep the files where they are rather than fail at the last step.
+        val total = selected.sumOf { meta.files[it].size }
+        var keptInApp = TorrentEngine.freeBytes(context) < total + 200L * 1024 * 1024
         val saved = selected.map { index ->
             val file = meta.files[index]
             val source = File(from, file.path)
@@ -395,6 +414,7 @@ private object DownloadSaver {
                 .getMimeTypeFromExtension(file.name.substringAfterLast('.', "").lowercase())
                 ?: "application/octet-stream"
             val uri = try {
+                if (keptInApp) throw IOException("Not enough space to copy")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) toMediaStore(context, source, file.name, mime, sub)
                 else toPublicFolder(context, source, file.name, sub)
             } catch (_: Exception) {

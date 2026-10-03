@@ -9,7 +9,6 @@ import org.junit.Before
 import org.junit.Test
 import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionManager
-import org.libtorrent4j.SessionParams
 import org.libtorrent4j.SettingsPack
 import org.libtorrent4j.TcpEndpoint
 import org.libtorrent4j.TorrentBuilder
@@ -87,6 +86,7 @@ class TorrentStreamTest {
 
         // Like a player: header first, then the tail (MP4 index), then seek into the middle.
         waitUntil(60_000) { stream.has(stream.firstPiece) }
+        var lastContiguous = 0L
         RandomAccessFile(stream.path, "r").use { raf ->
             for ((start, length) in listOf(
                 0L to 600_000,
@@ -100,8 +100,15 @@ class TorrentStreamTest {
                     video.copyOfRange(start.toInt(), start.toInt() + length),
                     got,
                 )
+                // What the buffering screen measures only ever grows, and never runs past data we have.
+                val contiguous = stream.contiguousBytes()
+                assertTrue(contiguous >= lastContiguous)
+                lastContiguous = contiguous
             }
             assertEquals(-1, stream.read(raf, video.size.toLong(), ByteArray(16), 0, 16))
+            waitUntil(60_000) { stream.contiguousBytes() == video.size.toLong() }
+            assertTrue(stream.endsReady())
+            assertEquals(null, stream.error())
         }
     }
 
@@ -183,7 +190,8 @@ class TorrentStreamTest {
         settings.setEnableLsd(false)
         settings.setBoolean(settings_pack.bool_types.allow_multiple_connections_per_ip.swigValue(), true)
         return SessionManager(false).also {
-            it.start(SessionParams(settings))
+            // The phone's setup (posix disk I/O), so these tests cover the same storage path.
+            it.start(TorrentEngine.sessionParams(settings))
             sessions += it
         }
     }

@@ -43,8 +43,17 @@ come from the same composition.
 
 **Torrent streaming**
 - Pick a video and only that file is downloaded.
-- Playback starts after a short pre-buffer: the first few pieces plus the last one, because
-  MP4 and MKV keep their index at the ends. **Play now** skips the wait.
+- **Starts when it can play to the end without stopping.** The buffering screen fetches the
+  file's start and end first (MP4/MKV keep their index there), reads the real duration from
+  them, and works out the video's bitrate. If the download is faster than playback, a
+  20-second cushion is enough; if it's slower, it buffers enough that the rest arrives before
+  playback catches up (`StreamReadiness`, using the last ~15 s of download speed with a 25%
+  safety margin). It shows "Ready to play without stopping in about …" and starts by itself.
+  **Play now** skips the wait.
+- Piece deadlines are sized from the measured download speed, so big torrents (with 8–16 MB
+  pieces) aren't swamped by deadlines nobody could meet.
+- If the torrent hits an error (for example the disk fills up), the player says so instead of
+  buffering forever.
 - The file downloads front to back while you watch. Seeking jumps the queue: the pieces at
   the new position get deadlines so libtorrent fetches them before anything else, and the
   player waits on just those.
@@ -68,6 +77,21 @@ come from the same composition.
   saved files too.
 - On Android 8–9 this needs storage permission; without it, finished files stay in
   ReelPlay's own storage and can still be played, opened and shared from Downloads.
+
+**Storage and stability**
+- libtorrent runs with plain file I/O rather than its default memory-mapped files. With
+  memory-mapping, transferring a 1.5 GB torrent crashed the process with SIGSEGV in local
+  tests, both times it was tried; with file I/O the same transfer finished using about 150 MB
+  of memory. On a phone, memory-mapping a multi-GB torrent also invites the low-memory
+  killer, runs 32-bit phones out of address space, and turns a full disk into a crash.
+- Streams and downloads check free space up front and refuse with sizes ("needs 14 GB, 9 GB
+  free") instead of filling the disk. If there isn't room to copy a finished download into
+  Download/, it stays in ReelPlay's storage and is still playable and shareable.
+- Errors in background download bookkeeping are logged instead of crashing the app.
+- **Crash reports**: if ReelPlay stopped abnormally (crash, native crash, freeze, or killed
+  for memory), the next launch says so and offers **Share report**. On Android 11+ this also
+  covers crashes Java can't catch. After such a stop, unfinished downloads come back paused,
+  so a download that caused the crash can't crash every launch.
 
 **Torrent engine**
 - Built on [libtorrent4j](https://github.com/aldenml/libtorrent4j) (libtorrent 2.0), DHT and
@@ -137,11 +161,16 @@ multi-file torrent from one libtorrent session and streams a file from a second 
 localhost, with the seeder throttled. The reads (start, tail, then seeks into the middle) have
 to wait for missing pieces and must return the original bytes.
 
-A second test does the download path: libtorrent's default add flags, then taken off the
+`StreamReadinessTest` checks the start-up maths: a fast download needs only the 20 s cushion;
+a slow one (1 MB/s against a 14 GB, 2 h 20 min film) buffers enough that a simulated
+playback never overtakes the download; no data means no ETA.
+
+A second libtorrent test does the download path: libtorrent's default add flags, then taken off the
 queue manager and paused, as `TorrentDownloads` does. It checks nothing downloads while
 paused, that after resuming only the chosen file is fetched, and that "finished" means that
 file is complete and byte-identical. A third checks the saved download list survives a JSON
-round trip. The libtorrent tests run on Linux x86_64 only and skip elsewhere.
+round trip. The libtorrent tests use the same posix disk backend as the app, and run on Linux x86_64
+only (they skip elsewhere).
 
 ## Limits
 

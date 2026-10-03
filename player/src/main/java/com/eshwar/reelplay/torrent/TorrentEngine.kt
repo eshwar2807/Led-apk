@@ -2,6 +2,7 @@ package com.eshwar.reelplay.torrent
 
 import android.content.Context
 import android.net.Uri
+import android.os.StatFs
 import androidx.core.net.toUri
 import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionHandle
@@ -61,17 +62,48 @@ object TorrentEngine {
         // Anything left here is from a session that was killed mid-stream.
         saveRoot.deleteRecursively()
         saveRoot.mkdirs()
-        val settings = SettingsPack()
-            .connectionsLimit(200)
-            .activeDownloads(8)
-            .activeSeeds(8)
-        settings.setEnableDht(true)
-        settings.setEnableLsd(true)
         return SessionManager(false).also {
-            it.start(SessionParams(settings))
+            it.start(sessionParams(mobileSettings()))
             session = it
         }
     }
+
+    fun mobileSettings(): SettingsPack = SettingsPack()
+        .connectionsLimit(200)
+        .activeDownloads(8)
+        .activeSeeds(8)
+        .apply {
+            setEnableDht(true)
+            setEnableLsd(true)
+        }
+
+    /** Shared with the JVM tests, so they exercise the same disk backend the phone uses. */
+    fun sessionParams(settings: SettingsPack): SessionParams = SessionParams(settings).apply {
+        // libtorrent 2 memory-maps every file by default. On a phone that maps gigabytes of a
+        // big torrent into the app, so the low-memory killer takes it (and 32-bit phones run out
+        // of address space), and a full disk becomes a SIGBUS crash instead of an error.
+        // Plain pread/pwrite has none of those problems.
+        setPosixDiskIO()
+    }
+
+    /** Free space where torrent data is written. */
+    fun freeBytes(context: Context): Long = try {
+        StatFs(storageRoot(context).path).availableBytes
+    } catch (_: Exception) {
+        Long.MAX_VALUE
+    }
+
+    /** Fails early, with sizes, instead of filling the disk halfway through. */
+    fun requireSpace(context: Context, bytes: Long) {
+        val free = freeBytes(context)
+        if (free < bytes + SPACE_MARGIN) {
+            throw IOException(
+                "Not enough storage: this needs ${humanSize(bytes)}, but only ${humanSize(free)} is free",
+            )
+        }
+    }
+
+    private fun humanSize(bytes: Long): String = com.eshwar.reelplay.ui.formatSize(bytes)
 
     /** Reads a torrent from a `.torrent` file/link or a magnet URI. Blocking; call off the main thread. */
     fun resolve(context: Context, source: String): TorrentMeta {
@@ -112,6 +144,8 @@ object TorrentEngine {
         streams[key]?.let { return it }
         // Already in Downloads: stream from that copy rather than fight over the torrent.
         if (TorrentDownloads.contains(meta.infoHash)) return TorrentDownloads.streamFile(context, meta.infoHash, file.index)
+        // A stream keeps the whole file on disk while it plays.
+        requireSpace(context, file.size)
         val s = session(context)
         val priorities = Array(meta.files.size) { if (it == file.index) Priority.DEFAULT else Priority.IGNORE }
         val dir = File(saveRoot, meta.infoHash).apply { mkdirs() }
@@ -166,4 +200,5 @@ object TorrentEngine {
     private fun key(hash: String, index: Int) = "$hash/$index"
 
     private const val MAGNET_TIMEOUT_S = 90
+    private const val SPACE_MARGIN = 200L * 1024 * 1024
 }

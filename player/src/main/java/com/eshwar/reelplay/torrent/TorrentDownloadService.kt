@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -42,29 +43,45 @@ class TorrentDownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        ServiceCompat.startForeground(
-            this, ONGOING_ID, ongoing("Starting downloads…", null),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
-        )
+        try {
+            ServiceCompat.startForeground(
+                this, ONGOING_ID, ongoing("Starting downloads…", null),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
+            )
+        } catch (e: Exception) {
+            // Refused (e.g. Android 15's daily data-sync allowance is used up). Downloads still
+            // run while the app is open; just don't take the app down over a notification.
+            Log.w("TorrentDownloadService", "Couldn't go foreground", e)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (!started) {
             started = true
             scope.launch {
                 TorrentDownloads.items.collectLatest { items ->
-                    val active = items.filter { it.isActive }
-                    if (active.isEmpty()) {
-                        stop()
-                        return@collectLatest
+                    try {
+                        update(items)
+                    } catch (e: Exception) {
+                        Log.w("TorrentDownloadService", "Notification update failed", e)
                     }
-                    val total = active.sumOf { it.record.totalBytes }
-                    val done = active.sumOf { it.doneBytes }
-                    val rate = active.sumOf { it.downloadRate.toLong() }
-                    val title = if (active.size == 1) active.first().record.name else "${active.size} torrents downloading"
-                    val text = "${formatSize(done)} of ${formatSize(total)} · ↓ ${formatSize(rate)}/s"
-                    notify(ONGOING_ID, ongoing(title, text, if (total > 0) (done * 100 / total).toInt() else null))
                 }
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun update(items: List<DownloadItem>) {
+        val active = items.filter { it.isActive }
+        if (active.isEmpty()) {
+            stop()
+            return
+        }
+        val total = active.sumOf { it.record.totalBytes }
+        val done = active.sumOf { it.doneBytes }
+        val rate = active.sumOf { it.downloadRate.toLong() }
+        val title = if (active.size == 1) active.first().record.name else "${active.size} torrents downloading"
+        val text = "${formatSize(done)} of ${formatSize(total)} · ↓ ${formatSize(rate)}/s"
+        notify(ONGOING_ID, ongoing(title, text, if (total > 0) (done * 100 / total).toInt() else null))
     }
 
     /** Android 15 caps data-sync services at 6 hours a day; downloads stay in the app's list. */
