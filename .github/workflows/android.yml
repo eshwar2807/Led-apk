@@ -35,3 +35,12 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+      - name: Upload ReelPlay APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: reelplay-apks
+          path: |
+            player/build/outputs/apk/debug/player-debug.apk
+            player/build/outputs/apk/release/player-release.apk
+          if-no-files-found: error
