@@ -3,4 +3,4 @@
 - Download torrents and magnet links to keep
 - Fixes crashes with large torrents and with Continue watching
 - Automatic update checks
-- Faster, clearer update checks
+- Clearer messages when checking for updates
