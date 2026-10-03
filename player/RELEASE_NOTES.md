@@ -1,0 +1,5 @@
+- Thin seek bar, Netflix red by default; pick another colour in Settings
+- Torrent streaming waits until it can play through without stopping
+- Download torrents and magnet links to keep
+- Fixes crashes with large torrents and with Continue watching
+- Automatic update checks

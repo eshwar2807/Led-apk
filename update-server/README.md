@@ -72,8 +72,10 @@ update server doesn't exist yet. That's expected.
 ## Publishing a release
 
 1. Bump `versionCode` (and `versionName`) in `player/build.gradle.kts` and push.
-2. Actions → **Release ReelPlay** → Run workflow, with the release notes users will see.
-   Or push a tag: `git tag -a reelplay-v1.4 -m "What's new…" && git push origin reelplay-v1.4`.
+2. Write what's new in `player/RELEASE_NOTES.md` (users see it in the update prompt) and push.
+   Changing that file starts the release. You can also do it in the GitHub web editor.
+   Alternatives: Actions → **Release ReelPlay** → Run workflow, or push a tag such as
+   `reelplay-v1.4` (its message becomes the notes).
 
 The workflow builds and signs the APK, runs the tests, refuses to publish unless the
 versionCode is higher than the live one, deploys, then checks the server reports the new

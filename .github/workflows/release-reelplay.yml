@@ -3,7 +3,10 @@ name: Release ReelPlay
 # Builds a signed ReelPlay release and publishes it to the fly.io update server, where
 # installed apps find it within a few hours (or straight away via "Check for updates").
 #
-# Run it from the Actions tab (with release notes), or push a tag like reelplay-v1.4.
+# Three ways to start it:
+#   - edit player/RELEASE_NOTES.md (the notes users see) and push, on any branch;
+#   - run it from the Actions tab, with release notes;
+#   - push a tag like reelplay-v1.4 (its message becomes the notes).
 # Bump versionCode/versionName in player/build.gradle.kts first: the job refuses to publish
 # anything that isn't newer than what's live.
 #
@@ -24,7 +27,11 @@ on:
         required: true
         default: "Bug fixes and improvements."
   push:
+    # Branch pushes release only when the notes file changes; GitHub doesn't apply path
+    # filters to tag pushes, so a reelplay-v* tag always releases.
+    branches: ["**"]
     tags: ["reelplay-v*"]
+    paths: ["player/RELEASE_NOTES.md"]
 
 concurrency:
   group: release-reelplay
@@ -103,11 +110,11 @@ jobs:
           fi
 
           notes="$NOTES_INPUT"
-          if [ -z "$notes" ]; then
-            # Tag pushes: use the tag's message, else the commit subject.
+          if [ -z "$notes" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
             notes=$(git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" 2>/dev/null)
-            [ -n "$notes" ] || notes=$(git log -1 --format=%s)
           fi
+          [ -n "$notes" ] || notes=$(cat player/RELEASE_NOTES.md 2>/dev/null)
+          [ -n "$notes" ] || notes=$(git log -1 --format=%s)
 
           out=update-server/release
           file="ReelPlay-$code.apk"
