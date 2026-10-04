@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Library scan. Android 13+ splits media access by type; 14+ may grant only a
          user-picked subset, which the library treats as "limited" rather than denied. -->
@@ -112,6 +113,12 @@
             android:name=".settings.SettingsActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density" />
+
+        <!-- Video stream downloads run as WorkManager foreground work, which needs a type. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <receiver
             android:name=".update.InstallResultReceiver"

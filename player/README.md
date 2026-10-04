@@ -50,6 +50,15 @@ come from the same composition.
   and Download (files go to Download/ReelPlay via Android's download manager; torrents open the
   torrent screen). File downloads show progress, speed and time left in Downloads. Only what's in the page's HTML: players built by script won't show up.
 
+- Each result is a tile: a preview (the page's poster, the image inside the link, or a frame
+  read from the video), the page's own title for it, and length, resolution, size and type.
+- **Downloading HLS streams (.m3u8)**: the quality list (one per resolution, H.264 preferred)
+  comes from the master playlist. A WorkManager job fetches the segments four at a time with
+  retries, decrypts AES-128, checkpoints after each piece (so it resumes), then copies the
+  samples into one MP4 with MediaMuxer (no re-encoding), joining a separate audio playlist
+  when the stream has one. Live streams and DRM (SAMPLE-AES, FairPlay/Widevine key formats)
+  are refused with a message. DASH (.mpd) plays but doesn't download yet.
+
 **Reporting problems**
 - ⋮ → **Report a problem**, Settings → Help, the player's error screen (**Report**), the crash
   notice (**Send to developer**) and a torrent's "Why is it slow?" panel all open one dialog: the

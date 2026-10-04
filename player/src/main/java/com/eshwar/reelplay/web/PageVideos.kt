@@ -1,6 +1,7 @@
 package com.eshwar.reelplay.web
 
 import kotlinx.coroutines.Dispatchers
+import org.jsoup.Jsoup
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -8,8 +9,20 @@ import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
 
-/** A video link found on a web page. */
-data class FoundVideo(val url: String, val name: String, val kind: Kind) {
+/**
+ * A video link found on a web page. [label] is what the page calls it (link text, a title
+ * attribute, the page title for its only video); [poster] is a preview image the page gives.
+ */
+data class FoundVideo(
+    val url: String,
+    val name: String,
+    val kind: Kind,
+    val label: String? = null,
+    val poster: String? = null,
+) {
+    /** What to show as its title: the page's own words when there are any, else the file name. */
+    val title: String get() = label ?: name
+
     enum class Kind(val label: String) {
         /** A plain file: playable and downloadable. */
         FILE("Video file"),
@@ -34,21 +47,63 @@ object PageVideos {
     private val STREAM_EXT = setOf("m3u8", "mpd")
 
     // href/src/content/data-src attributes, quoted either way, plus bare magnet links in text.
-    private val ATTR = Regex("""(?:href|src|content|data-src|data-url)\s*=\s*(["'])(.*?)\1""", RegexOption.IGNORE_CASE)
     private val BARE_URL = Regex("""https?://[^\s"'<>()]+""", RegexOption.IGNORE_CASE)
     private val MAGNET = Regex("""magnet:\?[^\s"'<>]+""", RegexOption.IGNORE_CASE)
 
-    fun extract(html: String, pageUrl: String): List<FoundVideo> {
-        val candidates = LinkedHashSet<String>()
-        ATTR.findAll(html).forEach { candidates += unescape(it.groupValues[2]) }
-        // Also links in scripts and JSON, where slashes are often escaped.
-        BARE_URL.findAll(unescape(html)).forEach { candidates += it.value }
-        MAGNET.findAll(html).forEach { candidates += unescape(it.value) }
+    private val LINK_ATTRS = listOf("href", "src", "data-src", "data-url", "data-video", "data-file", "content")
 
-        val seen = HashSet<String>()
-        return candidates.mapNotNull { raw -> classify(raw.trim(), pageUrl) }
-            .filter { seen.add(it.url) }
+    fun extract(html: String, pageUrl: String): List<FoundVideo> {
+        val doc = Jsoup.parse(html, pageUrl)
+        val pageTitle = clean(doc.selectFirst("meta[property=og:title]")?.attr("content")) ?: clean(doc.title())
+        val pageImage = doc.selectFirst("meta[property=og:image], meta[name=twitter:image]")?.absUrl("content")?.ifEmpty { null }
+
+        val found = LinkedHashMap<String, FoundVideo>()
+        fun add(raw: String, label: String?, poster: String?) {
+            val v = classify(raw.trim(), pageUrl) ?: return
+            val old = found[v.url]
+            // The same video linked twice: keep the first, filling in what it was missing.
+            found[v.url] = if (old == null) v.copy(label = label, poster = poster)
+            else old.copy(label = old.label ?: label, poster = old.poster ?: poster)
+        }
+
+        for (el in doc.select(LINK_ATTRS.joinToString(",") { "[$it]" })) {
+            val video = el.closest("video")
+            val label = when {
+                el.tagName() == "a" -> clean(el.text()) ?: clean(el.attr("title")) ?: clean(el.attr("aria-label"))
+                    ?: clean(el.selectFirst("img")?.attr("alt"))
+                video != null -> clean(video.attr("title")) ?: clean(video.attr("aria-label"))
+                el.tagName() == "meta" -> pageTitle
+                else -> clean(el.attr("title"))
+            }
+            val poster = video?.absUrl("poster")?.ifEmpty { null }
+                ?: el.selectFirst("img")?.absUrl("src")?.ifEmpty { null }
+                ?: if (el.tagName() == "meta") pageImage else null
+            for (attr in LINK_ATTRS) {
+                val value = el.attr(attr)
+                if (value.isNotEmpty()) add(value, label, poster)
+            }
+        }
+        // Also links in scripts and JSON, where slashes are often escaped.
+        val text = unescape(html)
+        BARE_URL.findAll(text).forEach { add(it.value, null, null) }
+        MAGNET.findAll(text).forEach { add(it.value, null, null) }
+
+        val list = found.values.toList()
+        // A page with one video is about that video: use the page's title and image for it.
+        return if (list.size == 1) {
+            listOf(list[0].copy(label = list[0].label ?: pageTitle, poster = list[0].poster ?: pageImage))
+        } else {
+            list
+        }
     }
+
+    /** Readable text or null: whitespace collapsed, no bare "Download"/"Play"-style words. */
+    private fun clean(s: String?): String? {
+        val t = s?.replace(Regex("\\s+"), " ")?.trim()?.take(140) ?: return null
+        return t.takeIf { it.length >= 3 && it.lowercase() !in GENERIC }
+    }
+
+    private val GENERIC = setOf("download", "play", "watch", "here", "click here", "link", "video", "mp4", "hd")
 
     /** The video [raw] points to, resolved against [pageUrl], or null if it isn't one. */
     internal fun classify(raw: String, pageUrl: String): FoundVideo? {

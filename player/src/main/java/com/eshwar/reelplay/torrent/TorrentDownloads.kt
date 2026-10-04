@@ -399,7 +399,7 @@ object TorrentDownloads {
 }
 
 /** Copies finished files into Download/ReelPlay/<torrent name>/, keeping the torrent's folders. */
-private object DownloadSaver {
+internal object DownloadSaver {
 
     class Result(val files: List<SavedFile>, val location: String, val keptInApp: Boolean)
 
@@ -432,6 +432,19 @@ private object DownloadSaver {
         }
         val location = if (keptInApp) "ReelPlay's own storage" else "${Environment.DIRECTORY_DOWNLOADS}/$folder"
         return Result(saved, location, keptInApp)
+    }
+
+    /**
+     * Puts one finished file into Download/ReelPlay (or [sub] under Downloads), returning a
+     * content URI. Falls back to sharing it from app storage when shared storage is unavailable.
+     */
+    fun saveOne(context: Context, source: File, name: String, mime: String, sub: String = "ReelPlay"): Pair<Uri, String> = try {
+        val clean = clean(name)
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) toMediaStore(context, source, clean, mime, sub)
+        else toPublicFolder(context, source, clean, sub)
+        uri to "${Environment.DIRECTORY_DOWNLOADS}/$sub"
+    } catch (_: Exception) {
+        FileProvider.getUriForFile(context, context.packageName + ".files", source) to "ReelPlay's own storage"
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)

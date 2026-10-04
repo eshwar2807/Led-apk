@@ -35,13 +35,16 @@ object WebDownloads {
     private const val PREFS = "web_downloads"
     private const val IDS = "ids"
 
-    fun start(context: Context, url: String, name: String): Long {
+    fun start(context: Context, url: String, name: String, referer: String? = null): Long {
         val safe = name.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "_").ifBlank { "video.mp4" }
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle(safe)
             .setDescription("ReelPlay")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "ReelPlay/$safe")
+            // Many video hosts only serve files to their own pages and real browsers.
+            .addRequestHeader("User-Agent", HttpFetcher.USER_AGENT)
+        referer?.let { request.addRequestHeader("Referer", it) }
         val id = manager(context).enqueue(request)
         prefs(context).edit { putStringSet(IDS, ids(context).map(Long::toString).toSet() + id.toString()) }
         return id

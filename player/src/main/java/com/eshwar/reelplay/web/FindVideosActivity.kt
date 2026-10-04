@@ -1,5 +1,31 @@
 package com.eshwar.reelplay.web
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import com.eshwar.reelplay.ui.formatDuration
+import com.eshwar.reelplay.ui.formatSize
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -93,6 +119,7 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     var url by rememberSaveable { mutableStateOf(initialUrl) }
     var state by remember { mutableStateOf<ScanState>(ScanState.Idle) }
+    var choosing by remember { mutableStateOf<QualityChoice?>(null) }
 
     fun scan() {
         if (url.isBlank()) return
@@ -152,17 +179,28 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
-                    LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+                    val pageUrl = remember(s) { PageVideos.normalize(url) }
+                    LazyColumn(
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 32.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         items(s.videos, key = { it.url }) { video ->
-                            FoundRow(
+                            FoundTile(
                                 video,
+                                pageUrl,
                                 onPlay = { play(context, video) },
-                                onDownload = { download(context, video) },
+                                onDownload = { info -> download(context, video, info, pageUrl) { choosing = it } },
                             )
                         }
                     }
                 }
             }
+        }
+    }
+    choosing?.let { c ->
+        QualityDialog(c, onDismiss = { choosing = null }) { variant ->
+            choosing = null
+            startStream(context, c.video, c.pageUrl, variant.url, variant.audioUrl, variant.label)
         }
     }
 }
@@ -176,53 +214,166 @@ private fun Hint(text: String, error: Boolean = false) {
     )
 }
 
+/** A stream download waiting for the user to pick a quality. */
+private class QualityChoice(val video: FoundVideo, val pageUrl: String, val info: VideoInfo)
+
 @Composable
-private fun FoundRow(video: FoundVideo, onPlay: () -> Unit, onDownload: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(video.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-        Text(
-            "${video.kind.label} · ${video.url}",
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onPlay) {
-                Icon(Icons.Rounded.PlayArrow, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Play")
+private fun FoundTile(video: FoundVideo, pageUrl: String, onPlay: () -> Unit, onDownload: (VideoInfo?) -> Unit) {
+    val info by produceState(VideoProbe.cached(video.url), video.url) { value = VideoProbe.probe(video, pageUrl) }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Row(Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(10.dp)) {
+            Box(
+                Modifier.width(144.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                val frame = info?.frame
+                when {
+                    frame != null -> Image(
+                        frame.asImageBitmap(), null,
+                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                    )
+                    info == null -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    else -> Icon(
+                        if (video.kind == FoundVideo.Kind.TORRENT || video.kind == FoundVideo.Kind.MAGNET) Icons.Rounded.Link
+                        else Icons.Rounded.Movie,
+                        null, tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                val badge = if (info?.live == true) "LIVE" else info?.durationMs?.let { formatDuration(it) }
+                badge?.let {
+                    Text(
+                        it, style = MaterialTheme.typography.labelSmall, color = Color.White,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)
+                            .background(if (info?.live == true) Color(0xCCE50914) else Color(0xAA000000), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
             }
-            if (video.downloadable) {
-                FilledTonalButton(onClick = onDownload) {
-                    Icon(Icons.Rounded.Download, null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Download")
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(video.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                Text(
+                    details(video, info),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+                Text(
+                    host(video.url) + if (video.label != null && video.label != video.name) " · ${video.name}" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onPlay, contentPadding = PaddingValues(horizontal = 12.dp)) {
+                        Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Play")
+                    }
+                    if (canDownload(video, info)) {
+                        FilledTonalButton(onClick = { onDownload(info) }, contentPadding = PaddingValues(horizontal = 12.dp)) {
+                            Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Download")
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+private fun canDownload(video: FoundVideo, info: VideoInfo?): Boolean = when (video.kind) {
+    FoundVideo.Kind.STREAM -> video.url.substringBefore('?').endsWith(".m3u8", true) && info?.live != true
+    else -> true
+}
+
+private fun details(video: FoundVideo, info: VideoInfo?): String {
+    val parts = mutableListOf<String>()
+    info?.resolution?.let(parts::add)
+    if (info != null && info.variants.size > 1) parts += "${info.variants.size} qualities"
+    info?.sizeBytes?.let { parts += (if (info.sizeIsEstimate) "~" else "") + formatSize(it) }
+    parts += when (video.kind) {
+        FoundVideo.Kind.FILE -> video.name.substringAfterLast('.', "video").substringBefore('?').uppercase()
+        FoundVideo.Kind.STREAM -> when {
+            info?.live == true -> "Live stream (play only)"
+            video.url.substringBefore('?').endsWith(".mpd", true) -> "DASH stream (play only)"
+            else -> "HLS stream"
+        }
+        FoundVideo.Kind.TORRENT -> "Torrent"
+        FoundVideo.Kind.MAGNET -> "Magnet link"
+    }
+    return parts.joinToString(" · ")
+}
+
+private fun host(url: String) = runCatching { java.net.URI(url).host }.getOrNull()?.removePrefix("www.") ?: "magnet"
+
+@Composable
+private fun QualityDialog(choice: QualityChoice, onDismiss: () -> Unit, onPick: (Hls.Variant) -> Unit) {
+    val variants = choice.info.variants
+    var picked by remember { mutableStateOf(variants.first()) }
+    val seconds = (choice.info.durationMs ?: 0) / 1000
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Download quality") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(choice.video.title, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                variants.forEach { v ->
+                    Row(Modifier.fillMaxWidth().clickable { picked = v }, verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = v == picked, onClick = { picked = v })
+                        val size = if (v.bandwidth > 0 && seconds > 0) " · ~" + formatSize(v.bandwidth * seconds / 8) else ""
+                        Text(v.label + size)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onPick(picked) }) { Text("Download") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 private fun play(context: Context, video: FoundVideo) {
     val intent = when (video.kind) {
         FoundVideo.Kind.TORRENT, FoundVideo.Kind.MAGNET -> TorrentActivity.intent(context, video.url)
-        else -> PlayerActivity.intent(context, listOf(video.url.toUri()), listOf(video.name), 0)
+        else -> PlayerActivity.intent(context, listOf(video.url.toUri()), listOf(video.title), 0)
     }
     context.startActivitySafely(intent)
 }
 
-private fun download(context: Context, video: FoundVideo) {
+private fun download(context: Context, video: FoundVideo, info: VideoInfo?, pageUrl: String, choose: (QualityChoice) -> Unit) {
     when (video.kind) {
         // The torrent screen has its own Download tab with file picking.
         FoundVideo.Kind.TORRENT, FoundVideo.Kind.MAGNET ->
             context.startActivitySafely(TorrentActivity.intent(context, video.url))
         FoundVideo.Kind.FILE -> try {
-            WebDownloads.start(context, video.url, video.name)
+            WebDownloads.start(context, video.url, fileName(video), pageUrl)
             Toast.makeText(context, "Downloading to Download/ReelPlay. Progress and speed: ⋮ → Downloads", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(context, "Couldn't start the download: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        FoundVideo.Kind.STREAM -> Unit
+        FoundVideo.Kind.STREAM -> when {
+            info == null -> Toast.makeText(context, "Still reading the stream; try again in a moment", Toast.LENGTH_SHORT).show()
+            info.live -> Toast.makeText(context, "Live streams can't be downloaded", Toast.LENGTH_SHORT).show()
+            info.variants.size > 1 -> choose(QualityChoice(video, pageUrl, info))
+            else -> {
+                val v = info.variants.firstOrNull()
+                startStream(context, video, pageUrl, v?.url ?: video.url, v?.audioUrl, v?.label ?: (info.resolution ?: "Original"))
+            }
+        }
     }
+}
+
+/** A file name from the page's title for the video when it has one, keeping the file's extension. */
+private fun fileName(video: FoundVideo): String {
+    val ext = video.name.substringAfterLast('.', "mp4").substringBefore('?').take(5)
+    val label = video.label ?: return video.name
+    return if (label.endsWith(".$ext", true)) label else "$label.$ext"
+}
+
+private fun startStream(context: Context, video: FoundVideo, pageUrl: String, playlist: String, audio: String?, quality: String) {
+    StreamDownloads.start(context, video.title, pageUrl, playlist, audio, quality)
+    Toast.makeText(context, "Downloading $quality. Progress and speed: ⋮ → Downloads", Toast.LENGTH_LONG).show()
 }

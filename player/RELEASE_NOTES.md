@@ -1,4 +1,3 @@
-- Fixed: playing a live/adaptive stream (.m3u8 HLS, .mpd DASH, rtsp://) crashed the player. These now play, and any link ReelPlay can't play shows a message instead of crashing
-- Report a problem from inside the app (⋮ menu, Settings, the player's error screen, a crash notice, or a slow torrent's details). You see exactly what's sent, and it goes straight to the developer
-- Downloads from "Find videos" now appear in Downloads with progress, speed and time left, plus Play and Cancel
-- Torrent downloads show more while starting, checking and paused (peers, seeders, progress)
+- Download video streams (.m3u8): pick a quality, and ReelPlay saves it as an MP4 in Download/ReelPlay. It joins the stream's pieces (and separate audio, if the stream has it), runs in the background, and resumes if the connection drops. Live and copy-protected streams can't be downloaded
+- Find videos shows clear tiles: a preview picture, the title from the page, and length, resolution, size and type, so you can tell which video is which
+- Stream downloads appear in Downloads with progress, speed, time left, Cancel and Retry

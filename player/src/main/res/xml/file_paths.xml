@@ -4,5 +4,6 @@
     <files-path name="files" path="." />
     <!-- Torrent downloads: the app's working copy, and Download/ReelPlay on Android 8-9. -->
     <external-files-path name="torrent_downloads" path="downloads/" />
+    <external-files-path name="streams" path="streams/" />
     <external-path name="public_downloads" path="Download/ReelPlay/" />
 </paths>

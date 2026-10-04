@@ -62,6 +62,8 @@ import androidx.core.net.toUri
 import com.eshwar.reelplay.player.PlayerActivity
 import com.eshwar.reelplay.ui.ReelPlayTheme
 import com.eshwar.reelplay.web.RateMeter
+import com.eshwar.reelplay.web.StreamDownload
+import com.eshwar.reelplay.web.StreamDownloads
 import com.eshwar.reelplay.web.WebDownload
 import com.eshwar.reelplay.web.WebDownloads
 import com.eshwar.reelplay.ui.formatDuration
@@ -103,6 +105,26 @@ private fun DownloadsScreen(onClose: () -> Unit) {
     var web by remember { mutableStateOf<List<WebDownload>>(emptyList()) }
     var webRates by remember { mutableStateOf<Map<Long, Long>>(emptyMap()) }
     val meters = remember { HashMap<Long, RateMeter>() }
+
+    // Video stream downloads: progress comes from their worker; speed is measured here.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { StreamDownloads.load(context) } }
+    val streams by StreamDownloads.items.collectAsState()
+    var streamRates by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    val streamMeters = remember { HashMap<String, RateMeter>() }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = SystemClock.elapsedRealtime()
+            streamRates = StreamDownloads.items.value.associate { d ->
+                d.id to if (d.state == StreamDownload.State.DOWNLOADING) {
+                    streamMeters.getOrPut(d.id) { RateMeter() }.sample(d.bytes, now) ?: 0L
+                } else {
+                    streamMeters.remove(d.id)
+                    0L
+                }
+            }
+            delay(1000)
+        }
+    }
     LaunchedEffect(Unit) {
         while (true) {
             val list = withContext(Dispatchers.IO) { WebDownloads.list(context) }
@@ -161,8 +183,8 @@ private fun DownloadsScreen(onClose: () -> Unit) {
         },
     ) { padding ->
         when {
-            engineError != null && web.isEmpty() -> Message(padding, engineError!!)
-            items.isEmpty() && web.isEmpty() -> Message(
+            engineError != null && web.isEmpty() && streams.isEmpty() -> Message(padding, engineError!!)
+            items.isEmpty() && web.isEmpty() && streams.isEmpty() -> Message(
                 padding,
                 "No downloads yet.\nTap + to add a magnet link or .torrent file, or open one from your browser or files.",
             )
@@ -173,6 +195,20 @@ private fun DownloadsScreen(onClose: () -> Unit) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                items(streams, key = { "stream-${it.id}" }) { d ->
+                    StreamDownloadCard(
+                        d,
+                        rate = streamRates[d.id] ?: 0L,
+                        onPlay = {
+                            d.savedUri?.let {
+                                context.startActivitySafely(PlayerActivity.intent(context, listOf(it.toUri()), listOf(d.title), 0))
+                            }
+                        },
+                        onCancel = { scope.launch(Dispatchers.IO) { StreamDownloads.cancel(context, d.id) } },
+                        onRetry = { StreamDownloads.retry(context, d.id) },
+                        onRemove = { scope.launch(Dispatchers.IO) { StreamDownloads.remove(context, d.id) } },
+                    )
+                }
                 items(web, key = { "web-${it.id}" }) { d ->
                     WebDownloadCard(
                         d,
@@ -251,6 +287,73 @@ private fun DownloadsScreen(onClose: () -> Unit) {
                 context.startActivitySafely(TorrentActivity.intent(context, source))
             },
         )
+    }
+}
+
+@Composable
+private fun StreamDownloadCard(
+    d: StreamDownload,
+    rate: Long,
+    onPlay: () -> Unit,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(d.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
+            val estimate = d.estimatedBytes
+            val size = when {
+                d.state == StreamDownload.State.DONE || estimate == null -> formatSize(d.bytes)
+                else -> "${formatSize(d.bytes)} of ~${formatSize(estimate)}"
+            }
+            Text(
+                "${d.state.label} · ${d.quality} · $size",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (d.state == StreamDownload.State.FAILED) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (d.active) {
+                Spacer(Modifier.height(8.dp))
+                val p = d.progress
+                if (p == null || d.state != StreamDownload.State.DOWNLOADING) LinearProgressIndicator(Modifier.fillMaxWidth())
+                else LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(6.dp))
+                val line = when (d.state) {
+                    StreamDownload.State.DOWNLOADING -> {
+                        val eta = if (rate > 0 && estimate != null) {
+                            " · ${formatDuration((estimate - d.bytes).coerceAtLeast(0) * 1000 / rate)} left"
+                        } else ""
+                        "${((p ?: 0f) * 100).toInt()}% · ↓ ${formatSize(rate)}/s · part ${d.donePieces} of ${d.totalPieces}$eta"
+                    }
+                    StreamDownload.State.QUEUED -> d.error ?: "Waiting for a connection"
+                    else -> null
+                }
+                line?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            if (d.state == StreamDownload.State.FAILED) {
+                d.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            }
+            if (d.state == StreamDownload.State.DONE) {
+                d.location?.let {
+                    Text("Saved to $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
+                when {
+                    d.active -> TextButton(onClick = onCancel) { Text("Cancel") }
+                    d.state == StreamDownload.State.DONE -> {
+                        TextButton(onClick = onRemove) { Text("Remove from list") }
+                        TextButton(onClick = onPlay) { Text("Play") }
+                    }
+                    else -> {
+                        TextButton(onClick = onRemove) { Text("Remove") }
+                        TextButton(onClick = onRetry) { Text("Retry") }
+                    }
+                }
+            }
+        }
     }
 }
 
