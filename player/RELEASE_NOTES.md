@@ -1,3 +1,3 @@
-- Download video streams (.m3u8): pick a quality, and ReelPlay saves it as an MP4 in Download/ReelPlay. It joins the stream's pieces (and separate audio, if the stream has it), runs in the background, and resumes if the connection drops. Live and copy-protected streams can't be downloaded
-- Find videos shows clear tiles: a preview picture, the title from the page, and length, resolution, size and type, so you can tell which video is which
-- Stream downloads appear in Downloads with progress, speed, time left, Cancel and Retry
+- Fixed "Can't play this video (ERROR_CODE_DECODING_FAILED)" on MKV files: ReelPlay now has its own decoders for audio phones often can't play (DTS, Dolby TrueHD, Dolby Digital and more), like MX Player
+- When the phone's decoder fails partway, ReelPlay recovers by itself: it tries another decoder, then another audio track, and as a last resort plays without sound, telling you what it did
+- Error messages now say which part failed and its format (for example "audio (DTS)" or "video (HEVC 3840×2160)")

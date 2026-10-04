@@ -44,6 +44,15 @@ come from the same composition.
 - Remembers where you left each video; next/previous through the folder.
 - **Edit** button sends the current video straight into the editor.
 
+**Decoders and recovery**
+- Platform decoders first; Jellyfin's build of the Media3 FFmpeg audio decoder covers what the
+  phone can't (DTS, TrueHD, AC-3/E-AC-3...). It was built for Media3 1.9.0, so its links were
+  checked against 1.11.1: every Media3 method and field it uses exists, its abstract methods
+  are implemented, and the constructors `DefaultRenderersFactory` looks up reflectively match.
+- On a decoder error the player retries without the decoder that failed (next hardware
+  decoder, then software), then another audio track, then without sound or subtitles, up to
+  four times per video (`DecoderRecovery`). Errors that remain name the track and codec.
+
 **Find videos on a page**
 - Library ⋮ → **Find videos on a page**, or share a page from the browser to ReelPlay: lists the
   video files, HLS/DASH streams, `.torrent` files and magnet links in the page, each with Play

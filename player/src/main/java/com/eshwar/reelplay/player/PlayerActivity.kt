@@ -32,6 +32,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.eshwar.reelplay.editor.EditorActivity
@@ -48,6 +49,21 @@ import com.eshwar.reelplay.ui.formatDuration
 class PlayerActivity : ComponentActivity(), PlayerHost {
 
     private lateinit var player: ExoPlayer
+    private val codecSelector = RecoveringCodecSelector()
+    private lateinit var recovery: DecoderRecovery
+
+    /**
+     * Platform decoders first; FFmpeg (DTS, TrueHD, Dolby Digital and more) for audio the phone
+     * can't decode itself; and a fallback to the next decoder when one fails to start.
+     */
+    private fun renderers() = DefaultRenderersFactory(this)
+        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        .setEnableDecoderFallback(true)
+        .setMediaCodecSelector(codecSelector)
+
+    override fun recoverFrom(error: androidx.media3.common.PlaybackException): String? = recovery.recover(error)
+
+    override fun resetRecovery() = recovery.reset()
     private lateinit var prefs: PlaybackPrefs
     private var enhancer: LoudnessEnhancer? = null
     private var orientationChosenByUser = false
@@ -69,7 +85,7 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
         }
         hideSystemBars()
 
-        player = ExoPlayer.Builder(this)
+        player = ExoPlayer.Builder(this, renderers())
             // torrent:// items read straight from the partly downloaded file.
             .setMediaSourceFactory(DefaultMediaSourceFactory(TorrentDataSource.Factory(this)))
             // After a stall (a slow torrent or network), gather 10 s before resuming rather than
@@ -88,6 +104,7 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
             .setSeekForwardIncrementMs(10_000)
             .setHandleAudioBecomingNoisy(true)
             .build()
+        recovery = DecoderRecovery(player, codecSelector)
         player.setPlaybackSpeed(prefs.playbackSpeed)
         player.addListener(listener)
         // ExoPlayer assigns its own session ID on a background thread; pin one up front so the
@@ -174,6 +191,11 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
     }
 
     private val listener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            // Each video gets its own recovery attempts (decoders found broken stay skipped).
+            recovery.reset()
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -407,6 +429,9 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
 
 /** What the player UI may ask of the window and system around it. */
 interface PlayerHost {
+    /** Tries to get past a decoder error; returns what it did, or null if it couldn't. */
+    fun recoverFrom(error: androidx.media3.common.PlaybackException): String?
+    fun resetRecovery()
     fun close()
     fun setBrightness(level: Float)
     fun currentBrightness(): Float

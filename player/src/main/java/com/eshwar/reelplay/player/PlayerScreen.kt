@@ -166,7 +166,11 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
             }
 
             override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
-                error = "Can't play this video (${e.errorCodeName})"
+                host.recoverFrom(e)?.let { what ->
+                    android.widget.Toast.makeText(context, what, android.widget.Toast.LENGTH_LONG).show()
+                    return
+                }
+                error = DecoderRecovery.explain(e, player)
                 errorDetails = "Playback error ${e.errorCodeName}\n" +
                     "Link: ${player.currentMediaItem?.localConfiguration?.uri}\n\n" + e.stackTraceToString().take(8_000)
             }

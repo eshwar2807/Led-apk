@@ -20,8 +20,8 @@ android {
         applicationId = "com.eshwar.reelplay"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "1.11"
+        versionCode = 13
+        versionName = "1.12"
         buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
     }
 
@@ -92,6 +92,8 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.exoplayer.dash)
     implementation(libs.androidx.media3.exoplayer.rtsp)
+    // Software audio decoders for what phones often can't decode (DTS, TrueHD, AC-3...).
+    implementation(libs.media3.ffmpeg.decoder)
     // Reading web pages for "Find videos": link text, posters, titles.
     implementation(libs.jsoup)
     implementation(libs.androidx.media3.ui)
