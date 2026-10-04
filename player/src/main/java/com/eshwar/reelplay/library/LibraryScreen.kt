@@ -339,12 +339,14 @@ fun LibraryScreen() {
             val playedTimes = remember(progressTick) { prefs.playedTimes() }
             val resumes = remember(progressTick) { prefs.resumePositions() }
             val playedAt: (VideoItem) -> Long = { playedTimes[it.uri.toString()] ?: 0L }
+            val newSince = remember { viewPrefs.newSinceSec }
+            val isNew: (VideoItem) -> Boolean = { it.isNew(playedAt(it), newSince) }
             fun arrange(list: List<VideoItem>): List<VideoItem> {
                 val now = System.currentTimeMillis()
                 return sort.sort(
                     list.filter {
                         (query.isBlank() || it.name.contains(query, ignoreCase = true)) &&
-                            filter.matches(it, playedAt(it), resumes[it.uri.toString()] ?: 0L, now)
+                            filter.matches(it, playedAt(it), resumes[it.uri.toString()] ?: 0L, now, newSince)
                     },
                     playedAt,
                 )
@@ -362,8 +364,8 @@ fun LibraryScreen() {
             }
 
             when {
-                searching -> VideoList(filtered, prefs, playedTimes, progressTick, actions)
-                openFolder != null -> VideoList(arrange(openFolder.videos), prefs, playedTimes, progressTick, actions)
+                searching -> VideoList(filtered, prefs, playedTimes, isNew, progressTick, actions)
+                openFolder != null -> VideoList(arrange(openFolder.videos), prefs, playedTimes, isNew, progressTick, actions)
                 else -> {
                     // Only offer to continue something we can still open: access can be lost
                     // (limited media access, the file deleted, a one-off grant from another app).
@@ -391,9 +393,9 @@ fun LibraryScreen() {
                     if (!loading && videos.isEmpty()) {
                         EmptyState()
                     } else if (tab == 0) {
-                        FolderList(shownFolders) { openFolderId = it.id }
+                        FolderList(shownFolders, newCount = { f -> f.videos.count(isNew) }) { openFolderId = it.id }
                     } else {
-                        VideoList(filtered, prefs, playedTimes, progressTick, actions)
+                        VideoList(filtered, prefs, playedTimes, isNew, progressTick, actions)
                     }
                 }
             }
@@ -548,22 +550,24 @@ private fun ContinueBanner(title: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun FolderList(folders: List<VideoFolder>, onOpen: (VideoFolder) -> Unit) {
+private fun FolderList(folders: List<VideoFolder>, newCount: (VideoFolder) -> Int, onOpen: (VideoFolder) -> Unit) {
     LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
         items(folders, key = { it.id }) { folder ->
             Row(
                 Modifier.fillMaxWidth().clickable { onOpen(folder) }.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val fresh = newCount(folder)
                 Box(
                     Modifier.size(52.dp).clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.primary)
+                    // A folder with unwatched new videos gets the red folder icon, like MX Player.
+                    Icon(Icons.Rounded.Folder, null, tint = if (fresh > 0) NEW_RED else MaterialTheme.colorScheme.primary)
                 }
                 Spacer(Modifier.width(16.dp))
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text(folder.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         "${folder.videos.size} video${if (folder.videos.size == 1) "" else "s"} · ${formatSize(folder.totalBytes)}",
@@ -571,6 +575,7 @@ private fun FolderList(folders: List<VideoFolder>, onOpen: (VideoFolder) -> Unit
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (fresh > 0) NewBadge(Modifier.padding(start = 8.dp), count = fresh)
             }
         }
     }
@@ -581,6 +586,7 @@ private fun VideoList(
     videos: List<VideoItem>,
     prefs: PlaybackPrefs,
     playedTimes: Map<String, Long>,
+    isNew: (VideoItem) -> Boolean,
     progressTick: Int,
     actions: VideoActions,
 ) {
@@ -597,13 +603,13 @@ private fun VideoList(
             val video = videos[index]
             val progress = remember(video.uri, progressTick) { prefs.progress(video.uri, video.durationMs) }
             val playedAt = playedTimes[video.uri.toString()] ?: 0L
-            VideoRow(video, progress, playedAt, onClick = { actions.play(videos, index) }, actions = actions)
+            VideoRow(video, progress, playedAt, isNew(video), onClick = { actions.play(videos, index) }, actions = actions)
         }
     }
 }
 
 @Composable
-private fun VideoRow(video: VideoItem, progress: Float, playedAt: Long, onClick: () -> Unit, actions: VideoActions) {
+private fun VideoRow(video: VideoItem, progress: Float, playedAt: Long, isNew: Boolean, onClick: () -> Unit, actions: VideoActions) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -611,6 +617,7 @@ private fun VideoRow(video: VideoItem, progress: Float, playedAt: Long, onClick:
     ) {
         Box(Modifier.width(128.dp).height(72.dp).clip(RoundedCornerShape(8.dp))) {
             VideoThumbnail(video.uri, Modifier.fillMaxSize())
+            if (isNew) NewBadge(Modifier.align(Alignment.TopStart).padding(4.dp))
             Text(
                 formatDuration(video.durationMs),
                 style = MaterialTheme.typography.labelSmall,

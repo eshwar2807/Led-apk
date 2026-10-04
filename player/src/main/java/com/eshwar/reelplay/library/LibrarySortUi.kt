@@ -33,6 +33,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 
 /** Remembers the library's sort and filter across launches. */
 class LibraryViewPrefs(context: Context) {
@@ -46,6 +50,19 @@ class LibraryViewPrefs(context: Context) {
         set(value) = prefs.edit {
             putString("sort_field", value.field.name)
             putBoolean("sort_ascending", value.ascending)
+        }
+
+    /**
+     * Videos added after this (epoch seconds) count as new until played. Set the first time it's
+     * asked for, three days back, so recent downloads are marked but an existing library isn't.
+     */
+    val newSinceSec: Long
+        get() {
+            val saved = prefs.getLong("new_since_sec", 0L)
+            if (saved > 0) return saved
+            val start = System.currentTimeMillis() / 1000 - 3 * 24 * 60 * 60
+            prefs.edit { putLong("new_since_sec", start) }
+            return start
         }
 
     var filter: PlayFilter
@@ -129,6 +146,22 @@ fun SortSummary(sort: LibrarySort, filter: PlayFilter, onClick: () -> Unit) {
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
     )
 }
+
+/** The red MX-style "NEW" tag; [count] > 1 shows how many (on folders). */
+@Composable
+fun NewBadge(modifier: Modifier = Modifier, count: Int = 1) {
+    Text(
+        if (count > 1) "$count NEW" else "NEW",
+        color = Color.White,
+        fontWeight = FontWeight.Bold,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = modifier
+            .background(NEW_RED, RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
+}
+
+val NEW_RED = Color(0xFFE50914)
 
 /** "3 Oct 2026", or "Today"/"Yesterday". */
 fun formatDay(epochMs: Long): String = when {

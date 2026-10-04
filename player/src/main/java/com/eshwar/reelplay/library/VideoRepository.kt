@@ -39,9 +39,16 @@ enum class SortField(val label: String, val ascendingLabel: String, val descendi
     RESOLUTION("Resolution", "Lowest", "Highest"),
 }
 
+/**
+ * MX-style "NEW": added since [newSinceSec] (the app's starting point for new videos) and not
+ * played yet. Playing it, even briefly, clears it.
+ */
+fun VideoItem.isNew(playedAt: Long, newSinceSec: Long): Boolean = playedAt == 0L && dateAddedSec > newSinceSec
+
 /** Which videos to show. */
 enum class PlayFilter(val label: String) {
     ALL("All videos"),
+    NEW("New (not played yet)"),
     UNPLAYED("Not played yet"),
     IN_PROGRESS("Partly watched"),
     PLAYED("Played"),
@@ -57,10 +64,11 @@ enum class PlayFilter(val label: String) {
      * [playedAt] is when a video was last played (epoch ms, 0 if never), [resumeAt] its saved
      * position (0 if none), [now] the current time in epoch ms.
      */
-    fun matches(video: VideoItem, playedAt: Long, resumeAt: Long, now: Long): Boolean {
+    fun matches(video: VideoItem, playedAt: Long, resumeAt: Long, now: Long, newSinceSec: Long = Long.MAX_VALUE): Boolean {
         val addedAt = video.dateAddedSec * 1000
         return when (this) {
             ALL -> true
+            NEW -> video.isNew(playedAt, newSinceSec)
             UNPLAYED -> playedAt == 0L
             IN_PROGRESS -> resumeAt > 0L
             PLAYED -> playedAt > 0L

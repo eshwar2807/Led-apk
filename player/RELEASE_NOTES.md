@@ -1,2 +1,3 @@
-- Privacy: problem reports no longer contain personal details. Your phone's name (and the owner name in it, like "Eshwar's Tab"), Bluetooth names, email addresses, network and hardware addresses are removed before you see the report and before it's sent. Only what you type yourself is sent as written
-- Includes 1.12's fixes for MKV files that wouldn't play (DTS / TrueHD / Dolby audio)
+- New videos are marked with a red NEW tag, like MX Player, until you play them. Folders with new videos get a red folder icon and a "NEW" tag with how many
+- New filter in Sort & filter: "New (not played yet)"
+- Videos added in the last 3 days count as new right away; your older library isn't marked

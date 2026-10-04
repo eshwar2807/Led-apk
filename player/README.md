@@ -15,6 +15,9 @@ come from the same composition.
   (oldest/newest, A–Z/Z–A, …), and filter to unplayed, partly watched, played or recently
   added/played videos. The choice is remembered; search by name.
 - Each video shows when it was added and when it was last played.
+- MX-style **NEW**: a red tag on videos added since the app's starting point (first launch of
+  1.14, minus three days) that haven't been played; folders holding any get a red icon and an
+  "N NEW" tag. Playing a video clears it. There's also a "New (not played yet)" filter.
 - Thumbnails with duration and a resume-progress strip, "Continue watching" banner.
 - Per-video menu: play, edit, share, properties, delete (Android 11+, via the system dialog).
 - Network stream: paste an `http(s)` link to an MP4/WebM file.
