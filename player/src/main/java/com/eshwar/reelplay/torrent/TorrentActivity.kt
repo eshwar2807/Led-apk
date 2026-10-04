@@ -77,6 +77,8 @@ class TorrentActivity : ComponentActivity() {
 
     private var handedToPlayer = false
     private var stream: TorrentStream? = null
+    /** Bumped when the user comes back from the player, to show the file list again. */
+    private val returnedFromPlayer = mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -86,6 +88,7 @@ class TorrentActivity : ComponentActivity() {
             ReelPlayTheme {
                 TorrentScreen(
                     source = source,
+                    returnedFromPlayer = returnedFromPlayer.intValue,
                     onStream = { stream = it },
                     onPlay = ::play,
                     onDownloaded = {
@@ -116,7 +119,18 @@ class TorrentActivity : ComponentActivity() {
         startActivity(
             PlayerActivity.intent(this, listOf(TorrentEngine.uriFor(stream)), listOf(stream.file.name), 0),
         )
-        finish()
+        // Stay underneath the player: Back from the video returns to this torrent's file list,
+        // instead of making the user add the magnet again.
+    }
+
+    override fun onRestart() {
+        super.onRestart()
+        if (handedToPlayer) {
+            // The player stopped that stream when it closed; choosing again starts a fresh one.
+            handedToPlayer = false
+            stream = null
+            returnedFromPlayer.intValue++
+        }
     }
 
     override fun onDestroy() {
@@ -145,6 +159,7 @@ private sealed interface Phase {
 @Composable
 private fun TorrentScreen(
     source: String?,
+    returnedFromPlayer: Int,
     onStream: (TorrentStream) -> Unit,
     onPlay: (TorrentStream) -> Unit,
     onDownloaded: () -> Unit,
@@ -157,6 +172,11 @@ private fun TorrentScreen(
     }
 
     var pendingDownload by remember { mutableStateOf<Pair<TorrentMeta, Set<Int>>?>(null) }
+
+    // Back from the player: show the files again (the torrent's details are still here).
+    LaunchedEffect(returnedFromPlayer) {
+        (phase as? Phase.Buffering)?.let { phase = Phase.Choose(it.stream.meta) }
+    }
 
     fun download(meta: TorrentMeta, selected: Set<Int>) {
         phase = Phase.Resolving
@@ -366,6 +386,7 @@ private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit
     var contiguous by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableStateOf<Long?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var endsReadyNow by remember { mutableStateOf(false) }
 
     LaunchedEffect(stream) {
         val rates = ArrayDeque<Int>()
@@ -375,10 +396,12 @@ private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit
             val have = withContext(Dispatchers.IO) { stream.contiguousBytes() }
             val endsReady = withContext(Dispatchers.IO) { stream.endsReady() }
             error = withContext(Dispatchers.IO) { stream.error() }
+            endsReadyNow = endsReady
             stats = s
             contiguous = have
-            // Average over ~15 s: swarm speed jumps around too much second to second.
-            s?.let { rates.addLast(it.downloadBytesPerSec); if (rates.size > 15) rates.removeFirst() }
+            // Average over the last ~5 s: steady enough to plan with, but it follows the swarm as
+            // peers connect, instead of dragging in the slow first seconds.
+            s?.let { rates.addLast(it.downloadBytesPerSec); if (rates.size > 5) rates.removeFirst() }
             val rate = if (rates.isEmpty()) 0.0 else rates.average()
             if (endsReady && !probed) {
                 probed = true
@@ -411,7 +434,9 @@ private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit
                 error != null -> "Torrent error: $error"
                 p == null -> "Connecting to peers…"
                 p.etaSeconds == null -> "Waiting for peers to send data…"
-                else -> "Ready to play without stopping in about ${com.eshwar.reelplay.ui.formatDuration(p.etaSeconds * 1000)}"
+                p.fastEnough -> "Ready to play in about ${com.eshwar.reelplay.ui.formatDuration(p.etaSeconds * 1000)}"
+                else -> "Ready in about ${com.eshwar.reelplay.ui.formatDuration(p.etaSeconds * 1000)}, then plays " +
+                    "${minutes(p.smoothSeconds)} without stopping"
             },
             fontWeight = FontWeight.Medium,
             color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
@@ -426,7 +451,8 @@ private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit
             )
             Text(
                 if (p.fastEnough) "Downloading faster than it plays — only a short buffer needed."
-                else "Downloading slower than it plays, so more is buffered first to avoid pauses later.",
+                else "Downloading slower than it plays. It buffers enough for ${minutes(p.smoothSeconds)} of smooth " +
+                    "playback; if the download is still behind by then, it pauses once to buffer the next stretch.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -449,7 +475,11 @@ private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit
         Spacer(Modifier.height(24.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = onClose) { Text("Cancel") }
-            Button(onClick = { onPlay(stream) }) { Text("Play now") }
+            Button(onClick = { onPlay(stream) }) {
+                // What "Play now" would buy: how long before it may have to pause.
+                val now = plan?.smoothIfStartedNow
+                Text(if (now != null && plan?.ready == false && endsReadyNow) "Play now (~${minutes(now)})" else "Play now")
+            }
         }
     }
 }
@@ -477,3 +507,10 @@ private suspend fun probeDuration(stream: TorrentStream): Long? =
 fun describe(s: TorrentStats): String =
     "↓ ${formatSize(s.downloadBytesPerSec.toLong())}/s · ${s.peers} peers (${s.seeds} seeds) · " +
         "${(s.progress * 100).toInt()}% downloaded"
+
+/** "45 s", "3 min", "1 h 20 min". */
+private fun minutes(seconds: Double): String = when {
+    seconds < 60 -> "${seconds.toInt()} s"
+    seconds < 3600 -> "${(seconds / 60).toInt()} min"
+    else -> "${(seconds / 3600).toInt()} h ${((seconds % 3600) / 60).toInt()} min"
+}

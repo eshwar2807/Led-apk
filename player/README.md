@@ -107,13 +107,19 @@ come from the same composition.
 
 **Torrent streaming**
 - Pick a video and only that file is downloaded.
-- **Starts when it can play to the end without stopping.** The buffering screen fetches the
-  file's start and end first (MP4/MKV keep their index there), reads the real duration from
-  them, and works out the video's bitrate. If the download is faster than playback, a
-  20-second cushion is enough; if it's slower, it buffers enough that the rest arrives before
-  playback catches up (`StreamReadiness`, using the last ~15 s of download speed with a 25%
-  safety margin). It shows "Ready to play without stopping in about …" and starts by itself.
-  **Play now** skips the wait.
+- **Starts when the next stretch will play smoothly.** The buffering screen fetches the file's
+  start and end first (MP4/MKV keep their index there), reads the real duration, and works out
+  the bitrate B. With download rate R (last ~5 s, 15% safety margin) and P bytes buffered,
+  playback catches the download after P / (B − R) seconds. Waiting until it never catches up
+  means waiting for most of the file whenever R < B, and in that case total waiting can't be
+  reduced, only moved. So `StreamReadiness` buffers for a 10-minute smooth stretch (or the rest
+  of the video): fast swarms start after a 20-second cushion, slow ones after (B − R)·10 min.
+  **Play now** shows how long it would run before it may pause.
+- The player applies the same rule (`TorrentLoadControl`, a wrapper around ExoPlayer's
+  LoadControl) whenever playback has to wait: after a stall it buffers the next 10-minute
+  stretch, so a slow swarm causes one pause instead of a stutter every few seconds; after a
+  seek, a 2-minute stretch so jumping around stays quick. It shows what it's waiting for.
+- Back from the player returns to the torrent's file list (the torrent screen stays underneath).
 - Piece deadlines are sized from the measured download speed, so big torrents (with 8–16 MB
   pieces) aren't swamped by deadlines nobody could meet.
 - If the torrent hits an error (for example the disk fills up), the player says so instead of

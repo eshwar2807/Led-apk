@@ -20,8 +20,8 @@ android {
         applicationId = "com.eshwar.reelplay"
         minSdk = 26
         targetSdk = 37
-        versionCode = 16
-        versionName = "2.0"
+        versionCode = 17
+        versionName = "2.1"
         buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
     }
 

@@ -447,8 +447,14 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
             // When a torrent stalls, say why instead of spinning silently.
             if (!controlsVisible) {
                 torrentLine?.let {
+                    val plan = host.torrentBufferPlan()
+                    val why = plan?.let { p ->
+                        val mins = (p.smoothSeconds / 60).toInt().coerceAtLeast(1)
+                        "Buffering so the next $mins min play without stopping" +
+                            (p.etaSeconds?.let { s -> " · about ${formatDuration(s * 1000)}" } ?: "")
+                    } ?: "Waiting for torrent data"
                     Text(
-                        "Waiting for torrent data · $it",
+                        "$why · $it",
                         color = Color.White, fontSize = 12.sp,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)

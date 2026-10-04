@@ -86,6 +86,26 @@ class TorrentStream(
         return ((contiguousUpTo + 1) * pieceLength - fileOffset).coerceAtMost(file.size)
     }
 
+    /** Download speed lately (bytes/s), smoothed; for planning how long to buffer. */
+    val recentRate: Double get() = rateEstimate
+
+    @Volatile private var aheadFrom = -1
+    @Volatile private var aheadTo = -1
+
+    /**
+     * How far the file is on disk without gaps from [filePosition] onward (a file position).
+     * Called often while buffering, so the scan resumes where the last one stopped.
+     */
+    fun contiguousFrom(filePosition: Long): Long {
+        val start = pieceAt(filePosition.coerceIn(0, (size - 1).coerceAtLeast(0)))
+        var p = if (start == aheadFrom && aheadTo >= start) aheadTo + 1 else start
+        while (p <= lastPiece && has(p)) p++
+        aheadFrom = start
+        aheadTo = p - 1
+        if (p == start) return filePosition
+        return (p * pieceLength - fileOffset).coerceAtMost(size)
+    }
+
     /** Blocks until the piece holding [filePosition] is downloaded and verified. */
     fun awaitPosition(filePosition: Long) {
         val piece = pieceAt(filePosition)

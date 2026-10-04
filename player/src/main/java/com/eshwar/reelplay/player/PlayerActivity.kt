@@ -54,6 +54,16 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
 
     private lateinit var player: ExoPlayer
     private val codecSelector = RecoveringCodecSelector()
+    private lateinit var torrentLoad: TorrentLoadControl
+
+    /** Points the torrent buffering rule at the torrent now playing, once its length is known. */
+    private fun updateTorrentTarget() {
+        val stream = player.currentMediaItem?.localConfiguration?.uri?.let(TorrentEngine::stream)
+        val duration = player.duration
+        torrentLoad.target = if (stream != null && duration > 0) TorrentLoadControl.Target(stream, duration) else null
+    }
+
+    override fun torrentBufferPlan(): com.eshwar.reelplay.torrent.StreamReadiness.Plan? = torrentLoad.lastPlan
     private lateinit var recovery: DecoderRecovery
 
     /**
@@ -94,7 +104,7 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
             .setMediaSourceFactory(DefaultMediaSourceFactory(TorrentDataSource.Factory(this)))
             // After a stall (a slow torrent or network), gather 10 s before resuming rather than
             // the default 5 s, so playback doesn't stutter stop-start-stop.
-            .setLoadControl(
+            .setLoadControl(TorrentLoadControl(
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
                         DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
@@ -103,7 +113,7 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
                         10_000,
                     )
                     .build(),
-            )
+            ).also { torrentLoad = it })
             .setSeekBackIncrementMs(Prefs.doubleTapSeekSec * 1000L)
             .setSeekForwardIncrementMs(Prefs.doubleTapSeekSec * 1000L)
             .setHandleAudioBecomingNoisy(true)
@@ -229,7 +239,10 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
     }
 
     private val listener = object : Player.Listener {
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = updateTorrentTarget()
+
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            updateTorrentTarget()
             // Each video gets its own recovery attempts (decoders found broken stay skipped).
             recovery.reset()
         }
@@ -493,6 +506,8 @@ private fun ResumeDialog(at: Long, onResume: () -> Unit, onStartOver: () -> Unit
 }
 
 interface PlayerHost {
+    /** What a buffering torrent is waiting for, or null. */
+    fun torrentBufferPlan(): com.eshwar.reelplay.torrent.StreamReadiness.Plan?
     /** Tries to get past a decoder error; returns what it did, or null if it couldn't. */
     fun recoverFrom(error: androidx.media3.common.PlaybackException): String?
     fun resetRecovery()
