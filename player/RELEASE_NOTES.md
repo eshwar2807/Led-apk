@@ -1,5 +1,5 @@
 - Much faster torrent downloads: ReelPlay now connects to peers over TCP instead of uTP, which was capping every connection at a few MB/s
-- Seeking is live: the picture follows your finger while you swipe or drag the seek bar
+- Seeking is live: the picture follows your finger while you swipe or drag the seek bar, instead of jumping when you let go
 - Library sort & filter, MX-style: title, date added, last played, length, size or resolution, each oldest/newest (or A–Z/Z–A…), plus filters like "Not played yet", "Played this week" or "Added today"
 - Each video shows when it was added and when you last played it
 - New "Find videos on a page": paste or share a web page link to list its videos, then play or download them

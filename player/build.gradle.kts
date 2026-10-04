@@ -61,6 +61,17 @@ android {
     }
 }
 
+// libtorrent's native library installs its own signal handlers, which replaces the desktop
+// JVM's SIGSEGV handler (the JVM relies on it internally), so the libtorrent tests crashed the
+// test JVM at random. libjsig chains the handlers. Android's runtime does this by itself.
+tasks.withType<Test>().configureEach {
+    val jsig = javaLauncher.map { it.metadata.installationPath.file("lib/libjsig.so").asFile }
+    doFirst {
+        val lib = jsig.get()
+        if (lib.exists()) environment("LD_PRELOAD", lib.absolutePath)
+    }
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

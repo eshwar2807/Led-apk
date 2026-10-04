@@ -182,8 +182,6 @@ class TorrentStreamTest {
     @Test(timeout = 180_000)
     fun downloadsAtFullSpeed() {
         val pack = File(root, "seed/pack").apply { mkdirs() }
-        // Written in chunks: one 96 MB array makes the GC finalize libtorrent4j's native
-        // wrappers mid-test, which can crash the JVM.
         val size = 96L * 1024 * 1024
         val chunks = Random(5)
         File(pack, "big.mkv").outputStream().use { out -> repeat(96) { out.write(chunks.nextBytes(1024 * 1024)) } }
