@@ -1,11 +1,8 @@
 package com.eshwar.reelplay.web
 
-import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -221,14 +218,8 @@ private fun download(context: Context, video: FoundVideo) {
         FoundVideo.Kind.TORRENT, FoundVideo.Kind.MAGNET ->
             context.startActivitySafely(TorrentActivity.intent(context, video.url))
         FoundVideo.Kind.FILE -> try {
-            val name = video.name.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "_").ifBlank { "video.mp4" }
-            val request = DownloadManager.Request(Uri.parse(video.url))
-                .setTitle(name)
-                .setDescription("ReelPlay")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "ReelPlay/$name")
-            context.getSystemService(DownloadManager::class.java).enqueue(request)
-            Toast.makeText(context, "Downloading to Download/ReelPlay", Toast.LENGTH_SHORT).show()
+            WebDownloads.start(context, video.url, video.name)
+            Toast.makeText(context, "Downloading to Download/ReelPlay. Progress and speed: ⋮ → Downloads", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(context, "Couldn't start the download: ${e.message}", Toast.LENGTH_LONG).show()
         }

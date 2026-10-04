@@ -1,5 +1,8 @@
 package com.eshwar.reelplay.settings
 
+import com.eshwar.reelplay.report.ReportDialog
+import com.eshwar.reelplay.report.Reports
+import androidx.compose.runtime.mutableStateOf
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -169,6 +172,26 @@ private fun SettingsScreen(onClose: () -> Unit) {
                 }
                 Spacer(Modifier.width(8.dp))
             }
+
+            Spacer(Modifier.height(28.dp))
+            Section("Help")
+            var reporting by remember { mutableStateOf(false) }
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                    .clickable { reporting = true }
+                    .padding(vertical = 12.dp),
+            ) {
+                Column {
+                    Text("Report a problem", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Sends your description, device details and (if you allow) the app's recent log " +
+                            "straight to the developer. You see everything before it's sent.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (reporting) ReportDialog(Reports.Kind.PROBLEM, onDismiss = { reporting = false })
         }
     }
 }

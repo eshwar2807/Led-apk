@@ -120,7 +120,7 @@ object CrashReporter {
         return detail
     }
 
-    private fun deviceInfo(context: Context): String {
+    fun deviceInfo(context: Context): String {
         val version = try {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         } catch (_: Exception) {

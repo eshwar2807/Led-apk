@@ -1,5 +1,8 @@
 package com.eshwar.reelplay.torrent
 
+import com.eshwar.reelplay.report.ReportDialog
+import com.eshwar.reelplay.report.Reports
+import androidx.compose.foundation.layout.Row
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -72,7 +75,19 @@ fun SwarmHealthPanel(name: String, read: () -> SwarmHealth?) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = { copy(context, h.report(name)) }) { Text("Copy details") }
+        var reporting by remember { mutableStateOf(false) }
+        Row {
+            TextButton(onClick = { copy(context, h.report(name)) }) { Text("Copy details") }
+            TextButton(onClick = { reporting = true }) { Text("Send to developer") }
+        }
+        if (reporting) {
+            ReportDialog(
+                Reports.Kind.TORRENT,
+                details = h.report(name),
+                title = "Report slow torrent",
+                onDismiss = { reporting = false },
+            )
+        }
     }
 }
 

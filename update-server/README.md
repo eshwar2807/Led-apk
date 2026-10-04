@@ -91,3 +91,19 @@ RELEASE_DIR=/tmp/rel PORT=8080 go run .
 
 Build an app that checks a local or staging server with
 `./gradlew :player:assembleDebug -PreelplayUpdateUrl=https://staging.example/reelplay/`.
+
+## Problem reports
+
+The app's **Report a problem** (and the crash, playback-error and slow-torrent screens) POST to
+`/reelplay/report`. Each report is saved as a JSON file on the `reports` fly.io volume (1 GB),
+which the release workflow creates on first deploy. Senders are limited to 20 reports an hour
+per IP, 256 KB each.
+
+To read them, add a repository secret **REPORTS_KEY** (any password you choose). The next
+release passes it to the server. Then open:
+
+    https://reelplay-updates.fly.dev/reelplay/reports?key=<REPORTS_KEY>
+
+Without the key, reading is switched off, but reports are still stored, and every report's
+summary also appears in `fly logs`. If the volume can't be created, the release still deploys
+and reports are only logged.

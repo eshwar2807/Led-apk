@@ -5,7 +5,8 @@ COPY go.mod ./
 COPY *.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /update-server .
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# Runs as root: fly.io volumes are mounted root-owned, and reports are written to one.
+FROM gcr.io/distroless/static-debian12
 COPY --from=build /update-server /update-server
 # Filled in by the release workflow: latest.json and the APK it names.
 COPY release/ /release/

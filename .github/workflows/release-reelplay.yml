@@ -206,11 +206,53 @@ jobs:
             exit 1
           fi
 
+      - name: Set up report storage
+        working-directory: update-server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          REPORTS_KEY: ${{ secrets.REPORTS_KEY }}
+        run: |
+          app='${{ steps.fly.outputs.app }}'
+          # The password for reading reports, if one has been chosen.
+          key=$(printf '%s' "$REPORTS_KEY" | tr -d '\r\n')
+          if [ -n "$key" ]; then
+            flyctl secrets set REPORTS_KEY="$key" --app "$app" --stage
+          else
+            echo "::notice::Add a REPORTS_KEY repository secret to read app reports at /reelplay/reports?key=..."
+          fi
+          has_volume() {
+            flyctl volumes list --app "$app" --json | python3 -c 'import json,sys; sys.exit(0 if any(v.get("name")=="reports" for v in json.load(sys.stdin) or []) else 1)'
+          }
+          if has_volume; then
+            echo "Report volume exists"
+            exit 0
+          fi
+          region=$(sed -n 's/^primary_region *= *"\(.*\)".*/\1/p' fly.toml)
+          if flyctl volumes create reports --app "$app" --region "$region" --size 1 --yes; then
+            # Machines made before the volume existed can't take it on: replace them, and the
+            # deploy below creates one with the volume attached.
+            for id in $(flyctl machines list --app "$app" --json | python3 -c 'import json,sys; [print(m["id"]) for m in json.load(sys.stdin) or [] if not (m.get("config") or {}).get("mounts")]'); do
+              flyctl machines destroy "$id" --app "$app" --force
+            done
+          else
+            # Never block a release on this: deploy without storage; reports are then only logged.
+            echo "::warning::Couldn't create the report volume; reports will only appear in fly logs."
+            python3 - <<'PY'
+          import re
+          p = "fly.toml"
+          s = open(p).read()
+          s = re.sub(r"\n\[mounts\]\n(?:  .*\n)*", "\n", s)
+          s = s.replace('REPORTS_DIR = "/data/reports"', 'REPORTS_DIR = ""')
+          open(p, "w").write(s)
+          PY
+          fi
+
       - name: Deploy to fly.io
         working-directory: update-server
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: flyctl deploy --remote-only --app '${{ steps.fly.outputs.app }}'
+        # One machine: a volume belongs to a single machine.
+        run: flyctl deploy --remote-only --ha=false --app '${{ steps.fly.outputs.app }}'
 
       - name: Check it's live
         run: |

@@ -48,7 +48,17 @@ come from the same composition.
 - Library ⋮ → **Find videos on a page**, or share a page from the browser to ReelPlay: lists the
   video files, HLS/DASH streams, `.torrent` files and magnet links in the page, each with Play
   and Download (files go to Download/ReelPlay via Android's download manager; torrents open the
-  torrent screen). Only what's in the page's HTML: players built by script won't show up.
+  torrent screen). File downloads show progress, speed and time left in Downloads. Only what's in the page's HTML: players built by script won't show up.
+
+**Reporting problems**
+- ⋮ → **Report a problem**, Settings → Help, the player's error screen (**Report**), the crash
+  notice (**Send to developer**) and a torrent's "Why is it slow?" panel all open one dialog: the
+  user describes the problem and sees the full text before it's sent (their words, the error,
+  device info, and optionally the app's own recent log).
+- Reports are POSTed to the update server (`/reelplay/report`), which keeps them on a fly.io
+  volume. Read them at `https://<app>.fly.dev/reelplay/reports?key=<REPORTS_KEY>` once the
+  `REPORTS_KEY` repository secret is set. If the server can't be reached, the app offers the
+  share sheet instead.
 
 **Torrents and magnet links**
 - Library ⋮ → **Open torrent / magnet**: paste a magnet link or a `.torrent` URL, or pick a

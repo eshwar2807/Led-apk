@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TravelExplore
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -99,6 +100,8 @@ import com.eshwar.reelplay.torrent.TorrentActivity
 import com.eshwar.reelplay.torrent.TorrentSourceDialog
 import com.eshwar.reelplay.update.Updates
 import com.eshwar.reelplay.web.FindVideosActivity
+import com.eshwar.reelplay.report.ReportDialog
+import com.eshwar.reelplay.report.Reports
 import kotlinx.coroutines.launch
 import com.eshwar.reelplay.ui.formatDuration
 import com.eshwar.reelplay.ui.canRead
@@ -143,6 +146,7 @@ fun LibraryScreen() {
     var showMoreMenu by remember { mutableStateOf(false) }
     var showStreamDialog by remember { mutableStateOf(false) }
     var showTorrentDialog by remember { mutableStateOf(false) }
+    var showReport by remember { mutableStateOf(false) }
     val updateScope = rememberCoroutineScope()
     var infoFor by remember { mutableStateOf<VideoItem?>(null) }
     // Resume positions change while the player is open; bump this to redraw progress strips.
@@ -284,6 +288,11 @@ fun LibraryScreen() {
                                     },
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Report a problem") },
+                                    leadingIcon = { Icon(Icons.Rounded.BugReport, null) },
+                                    onClick = { showMoreMenu = false; showReport = true },
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Check for updates") },
                                     leadingIcon = { Icon(Icons.Rounded.SystemUpdate, null) },
                                     onClick = {
@@ -404,6 +413,8 @@ fun LibraryScreen() {
             },
         )
     }
+
+    if (showReport) ReportDialog(Reports.Kind.PROBLEM, onDismiss = { showReport = false })
 
     if (showStreamDialog) {
         StreamDialog(

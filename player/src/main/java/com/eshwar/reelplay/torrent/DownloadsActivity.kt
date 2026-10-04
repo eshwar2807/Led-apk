@@ -61,14 +61,22 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.eshwar.reelplay.player.PlayerActivity
 import com.eshwar.reelplay.ui.ReelPlayTheme
+import com.eshwar.reelplay.web.RateMeter
+import com.eshwar.reelplay.web.WebDownload
+import com.eshwar.reelplay.web.WebDownloads
 import com.eshwar.reelplay.ui.formatDuration
 import com.eshwar.reelplay.ui.formatSize
 import com.eshwar.reelplay.ui.startActivitySafely
+import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Torrent downloads: progress, pause/resume, play (even mid-download), open and remove. */
+/**
+ * Downloads: torrents (progress, pause/resume, play even mid-download, open, remove) and files
+ * from "Find videos" (progress, speed, time left, play, cancel).
+ */
 class DownloadsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -90,6 +98,28 @@ private fun DownloadsScreen(onClose: () -> Unit) {
     var engineError by remember { mutableStateOf<String?>(null) }
     var removing by remember { mutableStateOf<DownloadItem?>(null) }
     var adding by remember { mutableStateOf(false) }
+
+    // Downloads from "Find videos": polled once a second while this screen is open.
+    var web by remember { mutableStateOf<List<WebDownload>>(emptyList()) }
+    var webRates by remember { mutableStateOf<Map<Long, Long>>(emptyMap()) }
+    val meters = remember { HashMap<Long, RateMeter>() }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val list = withContext(Dispatchers.IO) { WebDownloads.list(context) }
+            val now = SystemClock.elapsedRealtime()
+            webRates = list.associate { d ->
+                val rate = if (d.status == WebDownload.Status.DOWNLOADING) {
+                    meters.getOrPut(d.id) { RateMeter() }.sample(d.doneBytes, now) ?: 0L
+                } else {
+                    meters.remove(d.id)
+                    0L
+                }
+                d.id to rate
+            }
+            web = list
+            delay(1000)
+        }
+    }
 
     LaunchedEffect(Unit) {
         try {
@@ -131,8 +161,8 @@ private fun DownloadsScreen(onClose: () -> Unit) {
         },
     ) { padding ->
         when {
-            engineError != null -> Message(padding, engineError!!)
-            items.isEmpty() -> Message(
+            engineError != null && web.isEmpty() -> Message(padding, engineError!!)
+            items.isEmpty() && web.isEmpty() -> Message(
                 padding,
                 "No downloads yet.\nTap + to add a magnet link or .torrent file, or open one from your browser or files.",
             )
@@ -143,6 +173,24 @@ private fun DownloadsScreen(onClose: () -> Unit) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                items(web, key = { "web-${it.id}" }) { d ->
+                    WebDownloadCard(
+                        d,
+                        rate = webRates[d.id] ?: 0L,
+                        onPlay = {
+                            val uri = WebDownloads.fileUri(context, d.id)
+                            if (uri == null) {
+                                toast("The file is gone")
+                            } else {
+                                context.startActivitySafely(PlayerActivity.intent(context, listOf(uri), listOf(d.title), 0))
+                            }
+                        },
+                        onRemove = { deleteFile ->
+                            scope.launch(Dispatchers.IO) { WebDownloads.remove(context, d.id, deleteFile) }
+                            web = web.filter { it.id != d.id }
+                        },
+                    )
+                }
                 items(items, key = { it.id }) { item ->
                     DownloadCard(
                         item = item,
@@ -207,6 +255,62 @@ private fun DownloadsScreen(onClose: () -> Unit) {
 }
 
 @Composable
+private fun WebDownloadCard(d: WebDownload, rate: Long, onPlay: () -> Unit, onRemove: (deleteFile: Boolean) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(d.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
+            val size = when {
+                d.status == WebDownload.Status.DONE -> formatSize(d.doneBytes)
+                d.totalBytes > 0 -> "${formatSize(d.doneBytes)} of ${formatSize(d.totalBytes)}"
+                else -> formatSize(d.doneBytes)
+            }
+            Text(
+                "${d.status.label} · $size · from the web",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (d.status == WebDownload.Status.FAILED) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (d.active) {
+                Spacer(Modifier.height(8.dp))
+                val p = d.progress
+                if (p == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                else LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(6.dp))
+                val eta = if (rate > 0 && d.totalBytes > 0) {
+                    " · ${formatDuration((d.totalBytes - d.doneBytes).coerceAtLeast(0) * 1000 / rate)} left"
+                } else ""
+                val percent = p?.let { "${(it * 100).toInt()}% · " }.orEmpty()
+                Text(
+                    "$percent↓ ${formatSize(rate)}/s$eta",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            d.problem?.let {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (d.status == WebDownload.Status.FAILED) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
+                when {
+                    d.status == WebDownload.Status.DONE -> {
+                        TextButton(onClick = { onRemove(false) }) { Text("Remove from list") }
+                        TextButton(onClick = onPlay) { Text("Play") }
+                    }
+                    d.active -> TextButton(onClick = { onRemove(true) }) { Text("Cancel") }
+                    else -> TextButton(onClick = { onRemove(true) }) { Text("Remove") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun Message(padding: PaddingValues, text: String) {
     Box(Modifier.fillMaxSize().padding(padding).padding(32.dp), contentAlignment = Alignment.Center) {
         Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -244,13 +348,20 @@ private fun DownloadCard(
                 }
                 Spacer(Modifier.height(6.dp))
                 val eta = item.etaSeconds?.let { " · ${formatDuration(it * 1000)} left" }.orEmpty()
-                if (item.state == DownloadState.DOWNLOADING) {
-                    Text(
+                val stats = when (item.state) {
+                    DownloadState.DOWNLOADING ->
                         "${(item.progress * 100).toInt()}% · ↓ ${formatSize(item.downloadRate.toLong())}/s · " +
-                            "↑ ${formatSize(item.uploadRate.toLong())}/s · ${item.peers} peers$eta",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                            "↑ ${formatSize(item.uploadRate.toLong())}/s · ${item.peers} peers (${item.seeds} seeders)$eta"
+                    DownloadState.CHECKING -> "Checking what's already downloaded · ${(item.progress * 100).toInt()}%"
+                    DownloadState.STARTING ->
+                        "Finding peers · ${item.peers} connected (${item.seeds} seeders)" +
+                            if (item.downloadRate > 0) " · ↓ ${formatSize(item.downloadRate.toLong())}/s" else ""
+                    DownloadState.SAVING -> "Copying to Download/ReelPlay…"
+                    DownloadState.PAUSED -> "Paused at ${(item.progress * 100).toInt()}%"
+                    else -> null
+                }
+                stats?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 r.location?.let {

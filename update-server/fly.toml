@@ -7,6 +7,15 @@ primary_region = "iad"  # pick the region nearest your users: fly platform regio
 [build]
   dockerfile = "Dockerfile"
 
+# Problem reports sent from the app are kept on a small volume (the release workflow creates
+# it). Read them at https://<app>.fly.dev/reelplay/reports?key=<REPORTS_KEY>.
+[env]
+  REPORTS_DIR = "/data/reports"
+
+[mounts]
+  source = "reports"
+  destination = "/data"
+
 [http_service]
   internal_port = 8080
   force_https = true

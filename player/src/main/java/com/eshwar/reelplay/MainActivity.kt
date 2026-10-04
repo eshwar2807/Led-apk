@@ -37,6 +37,8 @@ import androidx.lifecycle.lifecycleScope
 import com.eshwar.reelplay.library.LibraryScreen
 import com.eshwar.reelplay.torrent.TorrentDownloadService
 import com.eshwar.reelplay.torrent.TorrentDownloads
+import com.eshwar.reelplay.report.ReportDialog
+import com.eshwar.reelplay.report.Reports
 import com.eshwar.reelplay.ui.ReelPlayTheme
 import com.eshwar.reelplay.update.UpdateDialog
 import com.eshwar.reelplay.update.UpdateWorker
@@ -95,9 +97,19 @@ private fun CrashReportPrompt() {
         report = withContext(Dispatchers.IO) { CrashReporter.pending(context) }
     }
     val text = report ?: return
+    var sending by remember { mutableStateOf(false) }
     fun close() {
         CrashReporter.dismiss(context)
         report = null
+    }
+    if (sending) {
+        ReportDialog(
+            kind = Reports.Kind.CRASH,
+            details = text,
+            title = "Send crash report",
+            onDismiss = ::close,
+        )
+        return
     }
     AlertDialog(
         onDismissRequest = ::close,
@@ -105,7 +117,7 @@ private fun CrashReportPrompt() {
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                 Text(
-                    "Sharing this report helps find the cause. Any torrent downloads that were " +
+                    "Sending this report to the developer helps find the cause. Any torrent downloads that were " +
                         "running have been paused; resume them from Downloads.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -113,15 +125,7 @@ private fun CrashReportPrompt() {
                 Text(text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
         },
-        confirmButton = {
-            TextButton(onClick = {
-                val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                    .putExtra(Intent.EXTRA_SUBJECT, "ReelPlay crash report")
-                    .putExtra(Intent.EXTRA_TEXT, text)
-                context.startActivity(Intent.createChooser(send, "Share crash report"))
-                close()
-            }) { Text("Share report") }
-        },
+        confirmButton = { TextButton(onClick = { sending = true }) { Text("Send to developer") } },
         dismissButton = { TextButton(onClick = ::close) { Text("Close") } },
     )
 }

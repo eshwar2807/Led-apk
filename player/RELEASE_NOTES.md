@@ -1,5 +1,4 @@
-- Much faster torrent downloads: ReelPlay now connects to peers over TCP instead of uTP, which was capping every connection at a few MB/s
-- Seeking is live: the picture follows your finger while you swipe or drag the seek bar, instead of jumping when you let go
-- Library sort & filter, MX-style: title, date added, last played, length, size or resolution, each oldest/newest (or A–Z/Z–A…), plus filters like "Not played yet", "Played this week" or "Added today"
-- Each video shows when it was added and when you last played it
-- New "Find videos on a page": paste or share a web page link to list its videos, then play or download them
+- Fixed: playing a live/adaptive stream (.m3u8 HLS, .mpd DASH, rtsp://) crashed the player. These now play, and any link ReelPlay can't play shows a message instead of crashing
+- Report a problem from inside the app (⋮ menu, Settings, the player's error screen, a crash notice, or a slow torrent's details). You see exactly what's sent, and it goes straight to the developer
+- Downloads from "Find videos" now appear in Downloads with progress, speed and time left, plus Play and Cancel
+- Torrent downloads show more while starting, checking and paused (peers, seeders, progress)

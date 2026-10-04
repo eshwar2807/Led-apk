@@ -39,6 +39,7 @@ type Manifest struct {
 }
 
 type server struct {
+	reports  *reports
 	dir      string
 	manifest Manifest
 	raw      []byte // manifest bytes exactly as served
@@ -96,6 +97,9 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /reelplay/latest.json", s.latest)
 	mux.HandleFunc("GET /reelplay/{file}", s.apk)
 	mux.HandleFunc("GET /{$}", s.page)
+	if s.reports != nil {
+		s.reports.routes(mux)
+	}
 	return logRequests(mux)
 }
 
@@ -175,6 +179,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("bad release in %s: %v", dir, err)
 	}
+	s.reports = newReports(os.Getenv("REPORTS_DIR"), os.Getenv("REPORTS_KEY"))
 	log.Printf("serving ReelPlay %s (%d) on %s", s.manifest.VersionName, s.manifest.VersionCode, addr)
 	srv := &http.Server{
 		Addr:              addr,

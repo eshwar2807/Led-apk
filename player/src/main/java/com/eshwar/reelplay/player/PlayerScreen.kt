@@ -104,6 +104,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.eshwar.reelplay.report.ReportDialog
+import com.eshwar.reelplay.report.Reports
 import com.eshwar.reelplay.settings.AppSettings
 import com.eshwar.reelplay.torrent.TorrentEngine
 import com.eshwar.reelplay.torrent.describe
@@ -145,6 +147,8 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
     var speed by remember { mutableFloatStateOf(player.playbackParameters.speed) }
     var buffering by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var errorDetails by remember { mutableStateOf("") }
+    var reporting by remember { mutableStateOf(false) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -163,6 +167,8 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
 
             override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
                 error = "Can't play this video (${e.errorCodeName})"
+                errorDetails = "Playback error ${e.errorCodeName}\n" +
+                    "Link: ${player.currentMediaItem?.localConfiguration?.uri}\n\n" + e.stackTraceToString().take(8_000)
             }
         }
         player.addListener(listener)
@@ -490,8 +496,12 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                             player.prepare()
                         }) { Text("Next video") }
                     }
+                    FilledTonalButton(onClick = { reporting = true }) { Text("Report") }
                 }
             }
+        }
+        if (reporting) {
+            ReportDialog(Reports.Kind.PLAYBACK, details = errorDetails, onDismiss = { reporting = false })
         }
 
         // ---- Controls ----

@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Rational
 import android.view.WindowManager
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -144,9 +145,17 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
                 .build()
         }
         val resume = prefs.position(uris[index])
-        player.setMediaItems(items, index, resume)
-        player.prepare()
-        player.play()
+        try {
+            player.setMediaItems(items, index, resume)
+            player.prepare()
+            player.play()
+        } catch (e: RuntimeException) {
+            // A link the player has no support for: say so rather than crash.
+            Log.w(TAG, "Can't play ${uris[index]}", e)
+            Toast.makeText(this, "ReelPlay can't play this link: ${e.message ?: e.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
         if (resume > 0) {
             Toast.makeText(this, "Resumed from ${formatDuration(resume)}", Toast.LENGTH_SHORT).show()
         }
@@ -378,6 +387,7 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
     }
 
     companion object {
+        private const val TAG = "PlayerActivity"
         private const val EXTRA_URIS = "uris"
         private const val EXTRA_TITLES = "titles"
         private const val EXTRA_INDEX = "index"
