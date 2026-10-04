@@ -163,8 +163,8 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
             Spacer(Modifier.padding(4.dp))
             when (val s = state) {
                 ScanState.Idle -> Hint(
-                    "Paste a link to a web page and ReelPlay lists the videos on it, ready to play or " +
-                        "download. You can also share a page to ReelPlay from your browser.",
+                    "Paste a link to a web page and All Media Player lists the videos on it, ready to play or " +
+                        "download. You can also share a page to All Media Player from your browser.",
                 )
                 ScanState.Scanning -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(16.dp))
                 is ScanState.Failed -> Hint(s.message, error = true)
@@ -350,7 +350,7 @@ private fun download(context: Context, video: FoundVideo, info: VideoInfo?, page
             context.startActivitySafely(TorrentActivity.intent(context, video.url))
         FoundVideo.Kind.FILE -> try {
             WebDownloads.start(context, video.url, fileName(video), pageUrl)
-            Toast.makeText(context, "Downloading to Download/ReelPlay. Progress and speed: ⋮ → Downloads", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Downloading to Download/ReelPlay. Progress and speed: the Downloader tab", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(context, "Couldn't start the download: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -375,5 +375,5 @@ private fun fileName(video: FoundVideo): String {
 
 private fun startStream(context: Context, video: FoundVideo, pageUrl: String, playlist: String, audio: String?, quality: String) {
     StreamDownloads.start(context, video.title, pageUrl, playlist, audio, quality)
-    Toast.makeText(context, "Downloading $quality. Progress and speed: ⋮ → Downloads", Toast.LENGTH_LONG).show()
+    Toast.makeText(context, "Downloading $quality. Progress and speed: the Downloader tab", Toast.LENGTH_LONG).show()
 }

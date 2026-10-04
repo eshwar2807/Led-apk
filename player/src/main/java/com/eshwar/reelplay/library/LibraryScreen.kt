@@ -1,5 +1,13 @@
 package com.eshwar.reelplay.library
 
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.runtime.collectAsState
+import com.eshwar.reelplay.settings.Prefs
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -95,11 +103,7 @@ import com.eshwar.reelplay.editor.EditorActivity
 import com.eshwar.reelplay.player.PlaybackPrefs
 import com.eshwar.reelplay.player.PlayerActivity
 import com.eshwar.reelplay.settings.SettingsActivity
-import com.eshwar.reelplay.torrent.DownloadsActivity
-import com.eshwar.reelplay.torrent.TorrentActivity
-import com.eshwar.reelplay.torrent.TorrentSourceDialog
 import com.eshwar.reelplay.update.Updates
-import com.eshwar.reelplay.web.FindVideosActivity
 import com.eshwar.reelplay.report.ReportDialog
 import com.eshwar.reelplay.report.Reports
 import kotlinx.coroutines.launch
@@ -125,9 +129,13 @@ private fun hasMediaAccess(context: Context): Boolean =
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }
 
+/**
+ * The Media Player tab: folders (or every video), search, sort & filter. [insets] are left to
+ * this screen's own bars; the home screen's bottom navigation takes care of the bottom.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen() {
+fun LibraryScreen(insets: WindowInsets = WindowInsets(0, 0, 0, 0)) {
     val context = LocalContext.current
     val prefs = remember { PlaybackPrefs(context) }
 
@@ -135,7 +143,8 @@ fun LibraryScreen() {
     var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableIntStateOf(0) }
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    // false: folders (the default, like MX Player); true: every video in one list.
+    var allVideos by rememberSaveable { mutableStateOf(false) }
     val viewPrefs = remember { LibraryViewPrefs(context) }
     var sort by remember { mutableStateOf(viewPrefs.sort) }
     var filter by remember { mutableStateOf(viewPrefs.filter) }
@@ -145,7 +154,6 @@ fun LibraryScreen() {
     var showSortMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var showStreamDialog by remember { mutableStateOf(false) }
-    var showTorrentDialog by remember { mutableStateOf(false) }
     var showReport by remember { mutableStateOf(false) }
     val updateScope = rememberCoroutineScope()
     var infoFor by remember { mutableStateOf<VideoItem?>(null) }
@@ -207,6 +215,7 @@ fun LibraryScreen() {
     )
 
     Scaffold(
+        contentWindowInsets = insets,
         topBar = {
             if (searching) {
                 TopAppBar(
@@ -245,13 +254,21 @@ fun LibraryScreen() {
                     },
                     title = {
                         Text(
-                            openFolder?.name ?: "ReelPlay",
+                            openFolder?.name ?: if (allVideos) "All videos" else "Folders",
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     },
                     actions = {
+                        if (openFolder == null) {
+                            IconButton(onClick = { allVideos = !allVideos }) {
+                                Icon(
+                                    if (allVideos) Icons.Rounded.Folder else Icons.Rounded.VideoLibrary,
+                                    if (allVideos) "Show folders" else "Show all videos",
+                                )
+                            }
+                        }
                         IconButton(onClick = { searching = true }) { Icon(Icons.Rounded.Search, "Search") }
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
@@ -265,27 +282,6 @@ fun LibraryScreen() {
                                     text = { Text("Network stream") },
                                     leadingIcon = { Icon(Icons.Rounded.Language, null) },
                                     onClick = { showMoreMenu = false; showStreamDialog = true },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Open torrent / magnet") },
-                                    leadingIcon = { Icon(Icons.Rounded.Link, null) },
-                                    onClick = { showMoreMenu = false; showTorrentDialog = true },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Find videos on a page") },
-                                    leadingIcon = { Icon(Icons.Rounded.TravelExplore, null) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        context.startActivitySafely(FindVideosActivity.intent(context))
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Downloads") },
-                                    leadingIcon = { Icon(Icons.Rounded.Download, null) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        context.startActivitySafely(DownloadsActivity.intent(context))
-                                    },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Report a problem") },
@@ -340,7 +336,8 @@ fun LibraryScreen() {
             val resumes = remember(progressTick) { prefs.resumePositions() }
             val playedAt: (VideoItem) -> Long = { playedTimes[it.uri.toString()] ?: 0L }
             val newSince = remember { viewPrefs.newSinceSec }
-            val isNew: (VideoItem) -> Boolean = { it.isNew(playedAt(it), newSince) }
+            val showNew = Prefs.version.collectAsState().value.let { Prefs.showNewTags }
+            val isNew: (VideoItem) -> Boolean = { showNew && it.isNew(playedAt(it), newSince) }
             fun arrange(list: List<VideoItem>): List<VideoItem> {
                 val now = System.currentTimeMillis()
                 return sort.sort(
@@ -367,32 +364,10 @@ fun LibraryScreen() {
                 searching -> VideoList(filtered, prefs, playedTimes, isNew, progressTick, actions)
                 openFolder != null -> VideoList(arrange(openFolder.videos), prefs, playedTimes, isNew, progressTick, actions)
                 else -> {
-                    // Only offer to continue something we can still open: access can be lost
-                    // (limited media access, the file deleted, a one-off grant from another app).
-                    val last by produceState<Pair<Uri, String>?>(null, progressTick) {
-                        val candidate = prefs.lastPlayed
-                        value = if (candidate != null && withContext(Dispatchers.IO) { context.canRead(candidate.first) }) {
-                            candidate
-                        } else {
-                            if (candidate != null) prefs.clearLastPlayed()
-                            null
-                        }
-                    }
-                    last?.let { last ->
-                        ContinueBanner(title = last.second) {
-                            context.startActivitySafely(
-                                PlayerActivity.intent(context, listOf(last.first), listOf(last.second), 0),
-                            )
-                        }
-                    }
-                    SecondaryTabRow(selectedTabIndex = tab) {
-                        Tab(tab == 0, onClick = { tab = 0 }, text = { Text("Folders") })
-                        Tab(tab == 1, onClick = { tab = 1 }, text = { Text("All videos") })
-                    }
                     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if (!loading && videos.isEmpty()) {
                         EmptyState()
-                    } else if (tab == 0) {
+                    } else if (!allVideos) {
                         FolderList(shownFolders, newCount = { f -> f.videos.count(isNew) }) { openFolderId = it.id }
                     } else {
                         VideoList(filtered, prefs, playedTimes, isNew, progressTick, actions)
@@ -424,16 +399,6 @@ fun LibraryScreen() {
             onPlay = { url ->
                 showStreamDialog = false
                 context.startActivitySafely(PlayerActivity.intent(context, listOf(url.toUri()), listOf(url), 0))
-            },
-        )
-    }
-
-    if (showTorrentDialog) {
-        TorrentSourceDialog(
-            onDismiss = { showTorrentDialog = false },
-            onOpen = { source ->
-                showTorrentDialog = false
-                context.startActivitySafely(TorrentActivity.intent(context, source))
             },
         )
     }
@@ -503,7 +468,7 @@ private fun PermissionPrompt(onGrant: () -> Unit) {
             Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary,
         )
         Spacer(Modifier.height(16.dp))
-        Text("Let ReelPlay find your videos", style = MaterialTheme.typography.titleLarge)
+        Text("Let All Media Player find your videos", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
         Text(
             "Videos stay on your phone. The library only reads what's already there.",
@@ -531,53 +496,71 @@ private fun EmptyState() {
 }
 
 @Composable
-private fun ContinueBanner(title: String, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.PlayArrow, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Continue watching", style = MaterialTheme.typography.labelMedium)
-                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+private fun FolderList(folders: List<VideoFolder>, newCount: (VideoFolder) -> Int, onOpen: (VideoFolder) -> Unit) {
+    LazyColumn(contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)) {
+        items(folders, key = { it.id }) { folder ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpen(folder) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FolderTile(folder.name, newCount(folder))
+                Spacer(Modifier.width(18.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(folder.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "${folder.videos.size} video${if (folder.videos.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
 }
 
+/**
+ * MX-style folder: a big grey folder with a hint of what's inside (camera, downloads, chat
+ * apps), and a red bubble counting new videos.
+ */
 @Composable
-private fun FolderList(folders: List<VideoFolder>, newCount: (VideoFolder) -> Int, onOpen: (VideoFolder) -> Unit) {
-    LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-        items(folders, key = { it.id }) { folder ->
-            Row(
-                Modifier.fillMaxWidth().clickable { onOpen(folder) }.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+private fun FolderTile(name: String, newCount: Int) {
+    Box(Modifier.size(width = 76.dp, height = 60.dp)) {
+        Icon(
+            Icons.Rounded.Folder, null,
+            tint = Color(0xFF3E444D),
+            modifier = Modifier.fillMaxSize(),
+        )
+        folderHint(name)?.let { hint ->
+            Icon(
+                hint, null,
+                tint = Color(0xFF6B727C),
+                modifier = Modifier.align(Alignment.Center).padding(top = 6.dp).size(24.dp),
+            )
+        }
+        if (newCount > 0) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(top = 2.dp).size(22.dp).background(NEW_RED, CircleShape),
+                contentAlignment = Alignment.Center,
             ) {
-                val fresh = newCount(folder)
-                Box(
-                    Modifier.size(52.dp).clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    // A folder with unwatched new videos gets the red folder icon, like MX Player.
-                    Icon(Icons.Rounded.Folder, null, tint = if (fresh > 0) NEW_RED else MaterialTheme.colorScheme.primary)
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(folder.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "${folder.videos.size} video${if (folder.videos.size == 1) "" else "s"} · ${formatSize(folder.totalBytes)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (fresh > 0) NewBadge(Modifier.padding(start = 8.dp), count = fresh)
+                Text(
+                    if (newCount > 99) "99+" else newCount.toString(),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
+    }
+}
+
+private fun folderHint(name: String) = name.lowercase().let { n ->
+    when {
+        "camera" in n || n == "dcim" -> Icons.Rounded.PhotoCamera
+        "whatsapp" in n || "telegram" in n || "messenger" in n || "signal" in n -> Icons.AutoMirrored.Rounded.Chat
+        "download" in n || "reelplay" in n -> Icons.Rounded.Download
+        "screen" in n && "record" in n -> Icons.Rounded.Videocam
+        "movie" in n || "film" in n -> Icons.Rounded.Movie
+        else -> null
     }
 }
 
@@ -616,7 +599,13 @@ private fun VideoRow(video: VideoItem, progress: Float, playedAt: Long, isNew: B
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(128.dp).height(72.dp).clip(RoundedCornerShape(8.dp))) {
-            VideoThumbnail(video.uri, Modifier.fillMaxSize())
+            if (Prefs.showThumbnails) {
+                VideoThumbnail(video.uri, Modifier.fillMaxSize())
+            } else {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Movie, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             if (isNew) NewBadge(Modifier.align(Alignment.TopStart).padding(4.dp))
             Text(
                 formatDuration(video.durationMs),

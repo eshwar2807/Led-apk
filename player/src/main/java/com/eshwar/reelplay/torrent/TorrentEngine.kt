@@ -1,6 +1,7 @@
 package com.eshwar.reelplay.torrent
 
 import android.content.Context
+import com.eshwar.reelplay.settings.Prefs
 import android.net.Uri
 import android.os.StatFs
 import androidx.core.net.toUri
@@ -124,6 +125,20 @@ object TorrentEngine {
         }
     }
 
+    /** Applies the speed limits from Settings to a running session. */
+    fun applyLimits() {
+        try {
+            session?.applySettings(SettingsPack().apply { limits(this) })
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Settings → Downloads speed limits, in bytes per second (0 = unlimited). */
+    private fun limits(pack: SettingsPack) {
+        pack.setInteger(settings_pack.int_types.download_rate_limit.swigValue(), Prefs.torrentDownloadLimitKb * 1024)
+        pack.setInteger(settings_pack.int_types.upload_rate_limit.swigValue(), Prefs.torrentUploadLimitKb * 1024)
+    }
+
     /**
      * Tuned for throughput: more peers at once, found faster, each kept busier. A torrent is
      * only as fast as the number of peers sending to you in parallel and how much you ask each
@@ -167,6 +182,7 @@ object TorrentEngine {
             setBoolean(settings_pack.bool_types.enable_outgoing_tcp.swigValue(), true)
             setBoolean(settings_pack.bool_types.enable_incoming_tcp.swigValue(), true)
             setBoolean(settings_pack.bool_types.smooth_connects.swigValue(), false)
+            limits(this)
         }
 
     /**

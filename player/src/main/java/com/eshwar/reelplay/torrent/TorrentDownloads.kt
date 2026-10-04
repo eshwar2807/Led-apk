@@ -2,6 +2,8 @@ package com.eshwar.reelplay.torrent
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.ConnectivityManager
+import com.eshwar.reelplay.settings.Prefs
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -37,6 +39,7 @@ enum class DownloadState(val label: String) {
     STARTING("Starting"),
     CHECKING("Checking files"),
     DOWNLOADING("Downloading"),
+    WAITING_WIFI("Waiting for Wi-Fi"),
     PAUSED("Paused"),
     SAVING("Saving to Downloads"),
     DONE("Done"),
@@ -112,7 +115,9 @@ data class DownloadItem(
     val id get() = record.id
     val progress: Float get() = if (record.totalBytes > 0) (doneBytes.toFloat() / record.totalBytes).coerceIn(0f, 1f) else 0f
     val etaSeconds: Long? get() = if (downloadRate > 0) (record.totalBytes - doneBytes).coerceAtLeast(0) / downloadRate else null
-    val isActive: Boolean get() = state in setOf(DownloadState.STARTING, DownloadState.CHECKING, DownloadState.DOWNLOADING, DownloadState.SAVING)
+    val isActive: Boolean get() = state in setOf(
+        DownloadState.STARTING, DownloadState.CHECKING, DownloadState.DOWNLOADING, DownloadState.SAVING, DownloadState.WAITING_WIFI,
+    )
 }
 
 /**
@@ -212,7 +217,7 @@ object TorrentDownloads {
         val handle = TorrentEngine.addTorrent(s, meta, dir, priorities)
         // Pause and resume are the user's call, not libtorrent's queue manager's.
         handle.unsetFlags(TorrentFlags.AUTO_MANAGED)
-        if (record.paused) handle.pause() else handle.resume()
+        if (record.paused || heldForWifi) handle.pause() else handle.resume()
     }
 
     /** Swarm diagnostics for an unfinished download, or null. Blocking; call off the main thread. */
@@ -231,7 +236,7 @@ object TorrentDownloads {
     }
 
     fun resume(id: String) {
-        handle(id)?.resume()
+        if (!heldForWifi) handle(id)?.resume()
         update(id) { it.copy(paused = false, error = null) }
         publish()
         ensureTicker()
@@ -295,7 +300,25 @@ object TorrentDownloads {
         }
     }
 
+    /** True while "Download over Wi-Fi only" is on and the phone is on mobile data. */
+    @Volatile
+    private var heldForWifi = false
+
+    /** Holds unpaused downloads on mobile data when the user asked for Wi-Fi only; lets them go after. */
+    private fun applyNetworkHold() {
+        val hold = Prefs.wifiOnly && try {
+            appContext.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered
+        } catch (_: Exception) {
+            false
+        }
+        if (hold == heldForWifi) return
+        heldForWifi = hold
+        val running = synchronized(lock) { records.values.filter { !it.paused && !it.done } }
+        running.forEach { r -> handle(r.id)?.let { if (hold) it.pause() else it.resume() } }
+    }
+
     private fun publish() {
+        applyNetworkHold()
         val snapshot = synchronized(lock) { records.values.toList() }
         _items.value = snapshot.sortedByDescending { it.addedAt }.map { record -> itemFor(record) }
     }
@@ -320,6 +343,7 @@ object TorrentDownloads {
         }
         val state = when {
             record.paused -> DownloadState.PAUSED
+            heldForWifi -> DownloadState.WAITING_WIFI
             s.state() == TorrentStatus.State.CHECKING_FILES || s.state() == TorrentStatus.State.CHECKING_RESUME_DATA ->
                 DownloadState.CHECKING
             else -> DownloadState.DOWNLOADING

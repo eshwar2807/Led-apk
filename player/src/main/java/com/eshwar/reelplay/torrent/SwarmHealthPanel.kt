@@ -93,6 +93,6 @@ fun SwarmHealthPanel(name: String, read: () -> SwarmHealth?) {
 
 private fun copy(context: Context, text: String) {
     context.getSystemService(ClipboardManager::class.java)
-        ?.setPrimaryClip(ClipData.newPlainText("ReelPlay torrent diagnostics", text))
+        ?.setPrimaryClip(ClipData.newPlainText("All Media Player torrent diagnostics", text))
     Toast.makeText(context, "Copied. Paste it in a message to share.", Toast.LENGTH_SHORT).show()
 }

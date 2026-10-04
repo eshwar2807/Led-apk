@@ -16,7 +16,7 @@ fun Context.startActivitySafely(intent: Intent, failure: String = "Couldn't open
     try {
         startActivity(intent)
     } catch (_: SecurityException) {
-        Toast.makeText(this, "$failure: ReelPlay no longer has access to this file", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "$failure: All Media Player no longer has access to this file", Toast.LENGTH_LONG).show()
     } catch (_: ActivityNotFoundException) {
         Toast.makeText(this, "$failure: no app can handle it", Toast.LENGTH_LONG).show()
     }

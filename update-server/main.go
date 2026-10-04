@@ -138,7 +138,7 @@ func (s *server) apk(w http.ResponseWriter, r *http.Request) {
 
 var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ReelPlay {{.VersionName}}</title>
+<title>All Media Player {{.VersionName}}</title>
 <style>
 :root{color-scheme:light dark;--bg:#fff;--fg:#14171f;--muted:#5b6475;--accent:#3d8bff}
 @media (prefers-color-scheme:dark){:root{--bg:#0b0e16;--fg:#e4e7f0;--muted:#a3abbb}}
@@ -147,7 +147,7 @@ main{max-width:560px;margin:0 auto;padding:48px 16px}
 a.btn{display:inline-block;background:var(--accent);color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:600}
 p.muted{color:var(--muted);font-size:14px} pre{white-space:pre-wrap;font:inherit}
 </style></head><body><main>
-<h1>ReelPlay {{.VersionName}}</h1>
+<h1>All Media Player {{.VersionName}}</h1>
 <p><a class="btn" href="/reelplay/{{.APK}}">Download APK</a></p>
 <p class="muted">{{printf "%.1f" .SizeMB}} MB · released {{.PublishedAt}}. Already installed? The app updates itself.</p>
 {{if .Notes}}<h2>What's new</h2><pre>{{.Notes}}</pre>{{end}}

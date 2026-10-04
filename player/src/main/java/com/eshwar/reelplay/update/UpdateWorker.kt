@@ -43,6 +43,10 @@ class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         private const val CHANNEL = "app_updates"
         const val EXTRA_SHOW_UPDATE = "show_update"
 
+        fun cancel(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK)
+        }
+
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<UpdateWorker>(6, TimeUnit.HOURS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -68,7 +72,7 @@ class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             )
             val n = NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_download)
-                .setContentTitle("ReelPlay ${update.versionName} is available")
+                .setContentTitle("All Media Player ${update.versionName} is available")
                 .setContentText(update.notes.lineSequence().firstOrNull { it.isNotBlank() } ?: "Tap to update")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(update.notes.ifBlank { "Tap to update" }))
                 .setContentIntent(open)

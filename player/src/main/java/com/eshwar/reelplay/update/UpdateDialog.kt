@@ -58,12 +58,12 @@ fun UpdateDialog() {
         UpdateState.UpToDate -> AlertDialog(
             onDismissRequest = ::close,
             title = { Text("You're up to date") },
-            text = { Text("ReelPlay ${BuildConfig.VERSION_NAME} is the latest version.") },
+            text = { Text("All Media Player ${BuildConfig.VERSION_NAME} is the latest version.") },
             confirmButton = { TextButton(onClick = ::close) { Text("OK") } },
         )
         is UpdateState.Available -> AlertDialog(
             onDismissRequest = ::close,
-            title = { Text("ReelPlay ${s.update.versionName} is available") },
+            title = { Text("All Media Player ${s.update.versionName} is available") },
             text = {
                 Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                     Text(
@@ -95,11 +95,11 @@ fun UpdateDialog() {
         )
         is UpdateState.NeedsPermission -> AlertDialog(
             onDismissRequest = ::close,
-            title = { Text("Allow ReelPlay to install updates") },
+            title = { Text("Allow All Media Player to install updates") },
             text = {
                 Text(
                     "Android asks once before an app can install its own updates. Turn on " +
-                        "\"Allow from this source\" for ReelPlay, then come back.",
+                        "\"Allow from this source\" for All Media Player, then come back.",
                 )
             },
             confirmButton = {
@@ -114,7 +114,7 @@ fun UpdateDialog() {
         is UpdateState.Installing -> AlertDialog(
             onDismissRequest = {},
             title = { Text("Installing ${s.update.versionName}…") },
-            text = { Text("Confirm on the next screen. ReelPlay restarts when it's done.") },
+            text = { Text("Confirm on the next screen. All Media Player restarts when it's done.") },
             confirmButton = {},
         )
         is UpdateState.Failed -> AlertDialog(

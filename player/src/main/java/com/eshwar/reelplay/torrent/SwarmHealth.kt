@@ -66,7 +66,7 @@ data class SwarmHealth(
 
     /** Plain-text summary to paste into a bug report. */
     fun report(name: String): String = buildString {
-        appendLine("ReelPlay ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) torrent diagnostics")
+        appendLine("All Media Player ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) torrent diagnostics")
         appendLine("Torrent: $name")
         appendLine("Verdict: ${verdict.title}")
         appendLine("Speed: ${formatSize(downloadRate.toLong())}/s")

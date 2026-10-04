@@ -1,5 +1,10 @@
 package com.eshwar.reelplay.torrent
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.rounded.TravelExplore
+import com.eshwar.reelplay.web.FindVideosActivity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -93,7 +98,11 @@ class DownloadsActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DownloadsScreen(onClose: () -> Unit) {
+fun DownloadsScreen(
+    onClose: (() -> Unit)?,
+    insets: WindowInsets = ScaffoldDefaults.contentWindowInsets,
+    menu: @Composable () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val items by TorrentDownloads.items.collectAsState()
@@ -174,19 +183,30 @@ private fun DownloadsScreen(onClose: () -> Unit) {
     }
 
     Scaffold(
+        contentWindowInsets = insets,
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
-                title = { Text("Downloads") },
-                actions = { IconButton(onClick = { adding = true }) { Icon(Icons.Rounded.Add, "Add torrent") } },
+                navigationIcon = {
+                    onClose?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }
+                },
+                title = { Text(if (onClose == null) "Downloader" else "Downloads", fontWeight = FontWeight.Bold) },
+                actions = { menu() },
             )
         },
     ) { padding ->
+        val header: @Composable () -> Unit = {
+            DownloaderActions(
+                onFind = { context.startActivitySafely(FindVideosActivity.intent(context)) },
+                onTorrent = { adding = true },
+            )
+        }
         when {
-            engineError != null && web.isEmpty() && streams.isEmpty() -> Message(padding, engineError!!)
+            engineError != null && web.isEmpty() && streams.isEmpty() -> Message(padding, engineError!!, header)
             items.isEmpty() && web.isEmpty() && streams.isEmpty() -> Message(
                 padding,
-                "No downloads yet.\nTap + to add a magnet link or .torrent file, or open one from your browser or files.",
+                "No downloads yet.\nFind videos on a web page, or add a magnet link or .torrent file. Torrents " +
+                    "opened from your browser or files land here too.",
+                header,
             )
             else -> LazyColumn(
                 contentPadding = PaddingValues(
@@ -195,6 +215,7 @@ private fun DownloadsScreen(onClose: () -> Unit) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item(key = "actions") { header() }
                 items(streams, key = { "stream-${it.id}" }) { d ->
                     StreamDownloadCard(
                         d,
@@ -414,9 +435,29 @@ private fun WebDownloadCard(d: WebDownload, rate: Long, onPlay: () -> Unit, onRe
 }
 
 @Composable
-private fun Message(padding: PaddingValues, text: String) {
-    Box(Modifier.fillMaxSize().padding(padding).padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun Message(padding: PaddingValues, text: String, header: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+        header()
+        Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+            Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** The Downloader's two ways in: videos from a web page, and torrents/magnets. */
+@Composable
+private fun DownloaderActions(onFind: () -> Unit, onTorrent: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        FilledTonalButton(onClick = onFind, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Rounded.TravelExplore, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Find videos on a page", maxLines = 2)
+        }
+        FilledTonalButton(onClick = onTorrent, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Rounded.Add, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Torrent / magnet", maxLines = 2)
+        }
     }
 }
 
@@ -461,6 +502,7 @@ private fun DownloadCard(
                             if (item.downloadRate > 0) " · ↓ ${formatSize(item.downloadRate.toLong())}/s" else ""
                     DownloadState.SAVING -> "Copying to Download/ReelPlay…"
                     DownloadState.PAUSED -> "Paused at ${(item.progress * 100).toInt()}%"
+                    DownloadState.WAITING_WIFI -> "${(item.progress * 100).toInt()}% · on hold until you're on Wi-Fi (Settings → Downloads)"
                     else -> null
                 }
                 stats?.let {
@@ -522,7 +564,7 @@ private fun DownloadCard(
                 when (item.state) {
                     DownloadState.PAUSED -> IconButton(onClick = onResume) { Icon(Icons.Rounded.PlayArrow, "Resume") }
                     DownloadState.FAILED -> IconButton(onClick = onResume) { Icon(Icons.Rounded.Refresh, "Retry") }
-                    DownloadState.DOWNLOADING, DownloadState.CHECKING, DownloadState.STARTING ->
+                    DownloadState.DOWNLOADING, DownloadState.CHECKING, DownloadState.STARTING, DownloadState.WAITING_WIFI ->
                         IconButton(onClick = onPause) { Icon(Icons.Rounded.Pause, "Pause") }
                     else -> Unit
                 }

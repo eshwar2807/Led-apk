@@ -251,8 +251,8 @@ object Updates {
             PackageInstaller.STATUS_FAILURE_ABORTED -> update?.let { UpdateState.Available(it) } ?: UpdateState.Idle
             PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
                 UpdateState.Failed(
-                    "This update is signed with a different key than the ReelPlay you have installed, so " +
-                        "Android won't install it over the top. Uninstall ReelPlay once, then install the new " +
+                    "This update is signed with a different key than the All Media Player you have installed, so " +
+                        "Android won't install it over the top. Uninstall All Media Player once, then install the new " +
                         "version from ${BuildConfig.UPDATE_URL.removeSuffix("reelplay/")} — updates after that " +
                         "install normally.",
                     update,

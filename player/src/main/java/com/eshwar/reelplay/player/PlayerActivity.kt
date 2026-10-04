@@ -14,6 +14,10 @@ import android.provider.OpenableColumns
 import android.util.Rational
 import android.view.WindowManager
 import android.util.Log
+import androidx.compose.runtime.mutableStateOf
+import com.eshwar.reelplay.settings.Orientation
+import com.eshwar.reelplay.settings.Prefs
+import com.eshwar.reelplay.settings.ResumeMode
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -100,12 +104,13 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
                     )
                     .build(),
             )
-            .setSeekBackIncrementMs(10_000)
-            .setSeekForwardIncrementMs(10_000)
+            .setSeekBackIncrementMs(Prefs.doubleTapSeekSec * 1000L)
+            .setSeekForwardIncrementMs(Prefs.doubleTapSeekSec * 1000L)
             .setHandleAudioBecomingNoisy(true)
             .build()
         recovery = DecoderRecovery(player, codecSelector)
-        player.setPlaybackSpeed(prefs.playbackSpeed)
+        player.setPlaybackSpeed(if (Prefs.rememberSpeed) prefs.playbackSpeed else 1f)
+        applyOrientationSetting()
         player.addListener(listener)
         // ExoPlayer assigns its own session ID on a background thread; pin one up front so the
         // loudness boost attaches to this player rather than the global mix.
@@ -122,6 +127,13 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
         setContent {
             ReelPlayTheme {
                 PlayerScreen(player = player, host = this, inPip = inPip.value)
+                resumeAsk.value?.let { at ->
+                    ResumeDialog(
+                        at,
+                        onResume = { answerResume(fromStart = false) },
+                        onStartOver = { answerResume(fromStart = true) },
+                    )
+                }
             }
         }
     }
@@ -161,21 +173,47 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
                 )
                 .build()
         }
-        val resume = prefs.position(uris[index])
+        val saved = prefs.position(uris[index])
+        val mode = Prefs.resumeMode
+        val resume = if (mode == ResumeMode.START_OVER) 0L else saved
         try {
             player.setMediaItems(items, index, resume)
             player.prepare()
-            player.play()
+            if (resume > 0 && mode == ResumeMode.ASK) askToResume(resume) else player.play()
         } catch (e: RuntimeException) {
             // A link the player has no support for: say so rather than crash.
             Log.w(TAG, "Can't play ${uris[index]}", e)
-            Toast.makeText(this, "ReelPlay can't play this link: ${e.message ?: e.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "All Media Player can't play this link: ${e.message ?: e.javaClass.simpleName}", Toast.LENGTH_LONG).show()
             finish()
             return
         }
-        if (resume > 0) {
+        if (resume > 0 && mode == ResumeMode.RESUME) {
             Toast.makeText(this, "Resumed from ${formatDuration(resume)}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** Settings → Resume playback set to "Ask": hold at the saved spot and let the user pick. */
+    private val resumeAsk = mutableStateOf<Long?>(null)
+
+    private fun askToResume(at: Long) {
+        player.pause()
+        resumeAsk.value = at
+    }
+
+    private fun answerResume(fromStart: Boolean) {
+        resumeAsk.value = null
+        if (fromStart) player.seekTo(0)
+        player.play()
+    }
+
+    private fun applyOrientationSetting() {
+        when (Prefs.orientation) {
+            Orientation.AUTO -> return // Chosen per video, from its shape.
+            Orientation.LANDSCAPE -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            Orientation.PORTRAIT -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            Orientation.SYSTEM -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        }
+        orientationChosenByUser = true
     }
 
     private fun displayName(uri: Uri): String {
@@ -218,8 +256,16 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
             }
             val newUri = newPosition.mediaItem?.localConfiguration?.uri ?: return
             val saved = prefs.position(newUri)
+            if (saved <= 0) return
             // The seek lands in the same item, so it doesn't come back through here.
-            if (saved > 0) player.seekTo(newPosition.mediaItemIndex, saved)
+            when (Prefs.resumeMode) {
+                ResumeMode.START_OVER -> Unit
+                ResumeMode.RESUME -> player.seekTo(newPosition.mediaItemIndex, saved)
+                ResumeMode.ASK -> {
+                    player.seekTo(newPosition.mediaItemIndex, saved)
+                    askToResume(saved)
+                }
+            }
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -261,7 +307,7 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
         }
     }
 
-    override val canBoost: Boolean get() = enhancer != null
+    override val canBoost: Boolean get() = enhancer != null && Prefs.volumeBoost
 
     override fun setBoost(fraction: Float) {
         // Up to +12 dB on top of full system volume, the same headroom MX offers at 200%.
@@ -307,7 +353,7 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
     }
 
     override fun rememberSpeed(speed: Float) {
-        prefs.playbackSpeed = speed
+        if (Prefs.rememberSpeed) prefs.playbackSpeed = speed
     }
 
     private fun attachSubtitle(uri: Uri) {
@@ -428,6 +474,24 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
 }
 
 /** What the player UI may ask of the window and system around it. */
+/** "Resume from 12:34" or "Start over", for Settings → Resume playback → Ask every time. */
+@androidx.compose.runtime.Composable
+private fun ResumeDialog(at: Long, onResume: () -> Unit, onStartOver: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onResume,
+        title = { androidx.compose.material3.Text("Continue watching?") },
+        text = { androidx.compose.material3.Text("You stopped this video at ${formatDuration(at)}.") },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onResume) {
+                androidx.compose.material3.Text("Resume from ${formatDuration(at)}")
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onStartOver) { androidx.compose.material3.Text("Start over") }
+        },
+    )
+}
+
 interface PlayerHost {
     /** Tries to get past a decoder error; returns what it did, or null if it couldn't. */
     fun recoverFrom(error: androidx.media3.common.PlaybackException): String?

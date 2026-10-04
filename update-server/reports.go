@@ -154,7 +154,7 @@ func (rs *reports) load(name string) (Report, error) {
 
 var listTmpl = template.Must(template.New("list").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ReelPlay reports</title>
+<title>All Media Player reports</title>
 <style>
 :root{color-scheme:light dark;--bg:#fff;--fg:#14171f;--muted:#5b6475;--accent:#3d8bff;--line:#dde1ea}
 @media (prefers-color-scheme:dark){:root{--bg:#0b0e16;--fg:#e4e7f0;--muted:#a3abbb;--line:#262e3e}}
@@ -165,12 +165,12 @@ ul{padding:0} .muted{color:var(--muted);font-size:13px} pre{white-space:pre-wrap
 </style></head><body><main>
 {{if .One}}<p><a href="/reelplay/reports?key={{.Key}}">← All reports</a></p>
 <h1>{{.One.Kind}}: {{.One.Summary}}</h1>
-<p class="muted">{{.One.Received.Format "2006-01-02 15:04 MST"}} · ReelPlay {{.One.VersionName}} ({{.One.VersionCode}}) · {{.One.ID}}</p>
+<p class="muted">{{.One.Received.Format "2006-01-02 15:04 MST"}} · v{{.One.VersionName}} ({{.One.VersionCode}}) · {{.One.ID}}</p>
 <pre>{{.One.Text}}</pre>
 <form method="post" action="/reelplay/reports/{{.One.ID}}/delete?key={{.Key}}"><button>Delete this report</button></form>
-{{else}}<h1>ReelPlay reports</h1><p class="muted">{{len .All}} newest first</p>
+{{else}}<h1>All Media Player reports</h1><p class="muted">{{len .All}} newest first</p>
 <ul>{{range .All}}<li><a href="/reelplay/reports/{{.ID}}?key={{$.Key}}">{{.Kind}}: {{.Summary}}</a>
-<div class="muted">{{.Received.Format "2006-01-02 15:04 MST"}} · ReelPlay {{.VersionName}}</div></li>{{else}}<li>No reports yet.</li>{{end}}</ul>
+<div class="muted">{{.Received.Format "2006-01-02 15:04 MST"}} · v{{.VersionName}}</div></li>{{else}}<li>No reports yet.</li>{{end}}</ul>
 {{if .All}}<form method="post" action="/reelplay/reports/all/delete?key={{.Key}}" onsubmit="return confirm('Delete every report?')"><button>Delete all reports</button></form>{{end}}{{end}}
 </main></body></html>`))
 

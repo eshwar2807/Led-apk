@@ -76,7 +76,7 @@ func TestServesManifestApkAndPage(t *testing.T) {
 
 	page, _ := http.Get(ts.URL + "/")
 	html, _ := io.ReadAll(page.Body)
-	if !strings.Contains(string(html), "ReelPlay 1.4") || !strings.Contains(string(html), "Fixes &lt;things&gt;") {
+	if !strings.Contains(string(html), "All Media Player 1.4") || !strings.Contains(string(html), "Fixes &lt;things&gt;") {
 		t.Fatalf("page not rendered/escaped: %s", html)
 	}
 }

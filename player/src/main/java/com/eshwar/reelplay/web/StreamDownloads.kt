@@ -153,7 +153,10 @@ object StreamDownloads {
             .setInputData(Data.Builder().putString(StreamDownloadWorker.KEY_ID, id).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .setConstraints(
-                androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build(),
+                androidx.work.Constraints.Builder().setRequiredNetworkType(
+                    if (com.eshwar.reelplay.settings.Prefs.wifiOnly) androidx.work.NetworkType.UNMETERED
+                    else androidx.work.NetworkType.CONNECTED,
+                ).build(),
             )
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(workName(id), ExistingWorkPolicy.REPLACE, request)

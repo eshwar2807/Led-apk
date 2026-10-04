@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.lifecycle.lifecycleScope
-import com.eshwar.reelplay.library.LibraryScreen
 import com.eshwar.reelplay.torrent.TorrentDownloadService
 import com.eshwar.reelplay.torrent.TorrentDownloads
 import com.eshwar.reelplay.report.ReportDialog
@@ -47,14 +46,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The video library: folders, all videos, and the way into the editor. */
+/** Home: the Media Player and Downloader tabs, plus crash, update and notification prompts. */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             ReelPlayTheme {
-                LibraryScreen()
+                HomeScreen()
                 CrashReportPrompt()
                 UpdateDialog()
                 AskForNotifications()
@@ -70,6 +69,7 @@ class MainActivity : ComponentActivity() {
 
     /** Quiet check on launch: only speaks up if there's a version the user hasn't waved off. */
     private fun checkForUpdate(fromNotification: Boolean) {
+        if (!fromNotification && !com.eshwar.reelplay.settings.Prefs.autoUpdateCheck) return
         lifecycleScope.launch {
             val update = try {
                 Updates.fetch()
@@ -113,7 +113,7 @@ private fun CrashReportPrompt() {
     }
     AlertDialog(
         onDismissRequest = ::close,
-        title = { Text("ReelPlay stopped last time") },
+        title = { Text("All Media Player stopped last time") },
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                 Text(

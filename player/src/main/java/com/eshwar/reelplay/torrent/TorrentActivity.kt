@@ -297,7 +297,7 @@ private fun ChooseView(meta: TorrentMeta, onStream: (TorrentFile) -> Unit, onDow
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Choose what to keep. Saved to Download/ReelPlay when done.",
+                    "Choose what to keep. Saved to Download/All Media Player when done.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),

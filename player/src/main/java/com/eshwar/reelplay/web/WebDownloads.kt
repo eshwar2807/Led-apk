@@ -39,11 +39,12 @@ object WebDownloads {
         val safe = name.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "_").ifBlank { "video.mp4" }
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle(safe)
-            .setDescription("ReelPlay")
+            .setDescription("All Media Player")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "ReelPlay/$safe")
             // Many video hosts only serve files to their own pages and real browsers.
             .addRequestHeader("User-Agent", HttpFetcher.USER_AGENT)
+            .setAllowedOverMetered(!com.eshwar.reelplay.settings.Prefs.wifiOnly)
         referer?.let { request.addRequestHeader("Referer", it) }
         val id = manager(context).enqueue(request)
         prefs(context).edit { putStringSet(IDS, ids(context).map(Long::toString).toSet() + id.toString()) }

@@ -107,6 +107,7 @@ import androidx.media3.ui.PlayerView
 import com.eshwar.reelplay.report.ReportDialog
 import com.eshwar.reelplay.report.Reports
 import com.eshwar.reelplay.settings.AppSettings
+import com.eshwar.reelplay.settings.Prefs
 import com.eshwar.reelplay.torrent.TorrentEngine
 import com.eshwar.reelplay.torrent.describe
 import com.eshwar.reelplay.ui.formatDuration
@@ -124,7 +125,7 @@ private enum class ResizeMode(val label: String, val mode: Int) {
     STRETCH("Stretch", AspectRatioFrameLayout.RESIZE_MODE_FILL),
 }
 
-private enum class DragMode { NONE, SEEK, BRIGHTNESS, VOLUME, ZOOM }
+private enum class DragMode { NONE, SEEK, BRIGHTNESS, VOLUME, ZOOM, IGNORED }
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -250,7 +251,8 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
         player.pause()
         sleepAtMs = null
     }
-    LaunchedEffect(sleepAtEnd) { player.pauseAtEndOfMediaItems = sleepAtEnd }
+    // Settings → Auto-play next off: stop after each video, as the sleep timer's "end of video" does.
+    LaunchedEffect(sleepAtEnd) { player.pauseAtEndOfMediaItems = sleepAtEnd || !Prefs.autoPlayNext }
 
     BackHandler(enabled = locked) { flash(GestureHint("Controls locked", Icons.Rounded.Lock)) }
 
@@ -307,11 +309,11 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                 when {
                                     offset.x < third -> {
                                         player.seekBack()
-                                        flash(GestureHint("−10s", Icons.Rounded.FastRewind))
+                                        flash(GestureHint("−${Prefs.doubleTapSeekSec}s", Icons.Rounded.FastRewind))
                                     }
                                     offset.x > third * 2 -> {
                                         player.seekForward()
-                                        flash(GestureHint("+10s", Icons.Rounded.FastForward))
+                                        flash(GestureHint("+${Prefs.doubleTapSeekSec}s", Icons.Rounded.FastForward))
                                     }
                                     else -> {
                                         if (player.isPlaying) player.pause() else player.play()
@@ -353,6 +355,13 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                             startX < size.width / 2f -> DragMode.BRIGHTNESS
                                             else -> DragMode.VOLUME
                                         }
+                                        // Gestures switched off in Settings are left alone.
+                                        if ((mode == DragMode.SEEK && !Prefs.seekGesture) ||
+                                            (mode == DragMode.BRIGHTNESS && !Prefs.brightnessGesture) ||
+                                            (mode == DragMode.VOLUME && !Prefs.volumeGesture)
+                                        ) {
+                                            mode = DragMode.IGNORED
+                                        }
                                         dragMode = mode
                                         when (mode) {
                                             DragMode.SEEK -> {
@@ -370,12 +379,12 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                             else -> Unit
                                         }
                                     }
-                                    if (mode != DragMode.NONE) {
+                                    if (mode != DragMode.NONE && mode != DragMode.IGNORED) {
                                         change.consume()
                                         when (mode) {
                                             DragMode.SEEK -> {
-                                                // A full swipe across the screen is about a minute and a half.
-                                                val span = 90_000f
+                                                // A full swipe across the screen seeks Settings → Swipe to seek (90 s by default).
+                                                val span = Prefs.swipeSeekSpanSec * 1000f
                                                 seekTarget = (seekStart + totalX / size.width * span).toLong()
                                                     .coerceIn(0L, duration.coerceAtLeast(0L))
                                                 player.seekTo(seekTarget)
@@ -420,7 +429,7 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                 player.seekTo(seekTarget)
                                 player.isScrubbingModeEnabled = false
                             }
-                            if (mode != DragMode.NONE) {
+                            if (mode != DragMode.NONE && mode != DragMode.IGNORED) {
                                 dragMode = DragMode.NONE
                                 hint = hint?.copy(sticky = false)
                                 hintTick++

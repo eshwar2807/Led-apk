@@ -62,6 +62,8 @@ import com.eshwar.reelplay.BuildConfig
 import com.eshwar.reelplay.player.SeekBar
 import com.eshwar.reelplay.ui.ReelPlayTheme
 import com.eshwar.reelplay.update.UpdateDialog
+import com.eshwar.reelplay.update.UpdateWorker
+import com.eshwar.reelplay.torrent.TorrentEngine
 import com.eshwar.reelplay.update.Updates
 import kotlinx.coroutines.launch
 
@@ -153,8 +155,76 @@ private fun SettingsScreen(onClose: () -> Unit) {
                 }
             }
 
+            // Redraw when a setting changes.
+            Prefs.version.collectAsState().value
+
+            Spacer(Modifier.height(20.dp))
+            ChoiceRow(
+                "Resume playback",
+                Prefs.resumeMode, ResumeMode.entries, { it.label }, { it.detail },
+            ) { Prefs.resumeMode = it }
+            SwitchRow(
+                "Play next video automatically",
+                "When one video ends, the next in the folder starts", Prefs.autoPlayNext,
+            ) { Prefs.autoPlayNext = it }
+            SwitchRow(
+                "Remember playback speed",
+                "Off: every video starts at 1x", Prefs.rememberSpeed,
+            ) { Prefs.rememberSpeed = it }
+            ChoiceRow("Screen orientation", Prefs.orientation, Orientation.entries, { it.label }) { Prefs.orientation = it }
+            SwitchRow(
+                "Volume boost",
+                "Let the volume gesture go past 100% for quiet videos", Prefs.volumeBoost,
+            ) { Prefs.volumeBoost = it }
+
+            Spacer(Modifier.height(28.dp))
+            Section("Gestures")
+            ChoiceRow(
+                "Double-tap to skip", Prefs.doubleTapSeekSec, listOf(5, 10, 15, 30, 60),
+                { "$it seconds" },
+            ) { Prefs.doubleTapSeekSec = it }
+            ChoiceRow(
+                "Swipe to seek: one screen width is", Prefs.swipeSeekSpanSec, listOf(30, 60, 90, 180, 300),
+                { if (it < 60) "$it seconds" else "${it / 60} min${if (it % 60 != 0) " ${it % 60} s" else ""}" },
+            ) { Prefs.swipeSeekSpanSec = it }
+            SwitchRow("Swipe left/right to seek", null, Prefs.seekGesture) { Prefs.seekGesture = it }
+            SwitchRow("Swipe on the left side for brightness", null, Prefs.brightnessGesture) { Prefs.brightnessGesture = it }
+            SwitchRow("Swipe on the right side for volume", null, Prefs.volumeGesture) { Prefs.volumeGesture = it }
+
+            Spacer(Modifier.height(28.dp))
+            Section("Library")
+            ChoiceRow("Open the app on", Prefs.startScreen, StartScreen.entries, { it.label }) { Prefs.startScreen = it }
+            SwitchRow(
+                "Mark new videos",
+                "Red NEW tags on videos you haven't played yet, and counts on their folders", Prefs.showNewTags,
+            ) { Prefs.showNewTags = it }
+            SwitchRow("Show thumbnails", "Off: faster on very large libraries", Prefs.showThumbnails) { Prefs.showThumbnails = it }
+
+            Spacer(Modifier.height(28.dp))
+            Section("Downloads")
+            SwitchRow(
+                "Download over Wi-Fi only",
+                "On mobile data, downloads wait and carry on when you're back on Wi-Fi", Prefs.wifiOnly,
+            ) { Prefs.wifiOnly = it }
+            val speeds = listOf(0, 256, 512, 1024, 2048, 5120, 10240)
+            ChoiceRow("Torrent download speed limit", Prefs.torrentDownloadLimitKb, speeds, ::speedLabel) {
+                Prefs.torrentDownloadLimitKb = it
+                TorrentEngine.applyLimits()
+            }
+            ChoiceRow("Torrent upload speed limit", Prefs.torrentUploadLimitKb, listOf(0, 64, 128, 256, 512, 1024), ::speedLabel) {
+                Prefs.torrentUploadLimitKb = it
+                TorrentEngine.applyLimits()
+            }
+
             Spacer(Modifier.height(28.dp))
             Section("Updates")
+            SwitchRow(
+                "Check for updates automatically",
+                "Every few hours, with a notification when a new version is out", Prefs.autoUpdateCheck,
+            ) {
+                Prefs.autoUpdateCheck = it
+                if (it) UpdateWorker.schedule(context) else UpdateWorker.cancel(context)
+            }
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                     .clickable { scope.launch { Updates.check(userAsked = true) } }
@@ -164,8 +234,7 @@ private fun SettingsScreen(onClose: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text("Check for updates", fontWeight = FontWeight.Medium)
                     Text(
-                        "ReelPlay ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}). Also checked " +
-                            "automatically every few hours, with a notification when one is out.",
+                        "All Media Player ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -96,10 +96,10 @@ object CrashReporter {
                 if (haveJavaTrace) null else "App crash (from a version that didn't record details)"
             ApplicationExitInfo.REASON_CRASH_NATIVE -> "Native crash (in the video or torrent engine)"
             ApplicationExitInfo.REASON_ANR -> "The app froze and Android closed it (ANR)"
-            ApplicationExitInfo.REASON_LOW_MEMORY -> "Android closed ReelPlay to free memory"
-            ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "Android closed ReelPlay for using too many resources"
-            ApplicationExitInfo.REASON_SIGNALED -> "ReelPlay was killed by a signal (${exit.status})"
-            ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "ReelPlay failed to start"
+            ApplicationExitInfo.REASON_LOW_MEMORY -> "Android closed All Media Player to free memory"
+            ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "Android closed All Media Player for using too many resources"
+            ApplicationExitInfo.REASON_SIGNALED -> "All Media Player was killed by a signal (${exit.status})"
+            ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "All Media Player failed to start"
             else -> null // Normal exits, user swipes, updates.
         } ?: return null
         val detail = buildString {
@@ -131,7 +131,7 @@ object CrashReporter {
         } catch (_: Exception) {
             -1
         }
-        return "ReelPlay $version · ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} " +
+        return "All Media Player $version · ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} " +
             "(API ${Build.VERSION.SDK_INT}) · ${Build.SUPPORTED_ABIS.firstOrNull()} · $free MB free"
     }
 }

@@ -1,3 +1,6 @@
-- New videos are marked with a red NEW tag, like MX Player, until you play them. Folders with new videos get a red folder icon and a "NEW" tag with how many
-- New filter in Sort & filter: "New (not played yet)"
-- Videos added in the last 3 days count as new right away; your older library isn't marked
+- ReelPlay is now All Media Player
+- New layout: two tabs at the bottom, Media Player and Downloader. Media Player shows your folders MX-style (big folder tiles, a red number for new videos); the button at the top switches to all videos. Downloader has Find videos on a page, torrents/magnets and all your downloads
+- New setting: Resume playback. Ask every time (Resume or Start over), always resume, or always start from the beginning
+- Many more settings: auto-play next, remember speed, screen orientation, volume boost, double-tap skip time, swipe-to-seek distance, turn gestures on or off, which tab opens first, NEW tags, thumbnails, download over Wi-Fi only, torrent speed limits, automatic update checks
+- Folder icons stay grey; new videos show as a red number on the folder
+- Removed the Continue watching banner

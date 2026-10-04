@@ -16,8 +16,22 @@ come from the same composition.
   added/played videos. The choice is remembered; search by name.
 - Each video shows when it was added and when it was last played.
 - MX-style **NEW**: a red tag on videos added since the app's starting point (first launch of
-  1.14, minus three days) that haven't been played; folders holding any get a red icon and an
-  "N NEW" tag. Playing a video clears it. There's also a "New (not played yet)" filter.
+  1.14, minus three days) that haven't been played; folders holding any show a red count on
+  the folder tile. Playing a video clears it. There's also a "New (not played yet)" filter.
+
+**Home screen (2.0)**
+- The app is named **All Media Player** (package and the Download/ReelPlay folder are unchanged,
+  so updates keep installing over the top and saved files stay where they are).
+- Bottom bar: **Media Player** (folders, MX-style tiles; top-bar button for all videos; search;
+  sort & filter) and **Downloader** (Find videos on a page, torrents/magnets, and every download
+  with its stats). Settings → Library chooses which opens first.
+
+**Settings**
+- Player: resume playback (ask / resume / start over), auto-play next, remember speed,
+  orientation, volume boost, seek bar colour. Gestures: double-tap skip time, swipe-to-seek
+  distance, each swipe gesture on/off. Library: start tab, NEW tags, thumbnails. Downloads:
+  Wi-Fi only (torrents wait as "Waiting for Wi-Fi"; streams and files use unmetered networks),
+  torrent download/upload limits. Updates: automatic checks on/off.
 - Thumbnails with duration and a resume-progress strip, "Continue watching" banner.
 - Per-video menu: play, edit, share, properties, delete (Android 11+, via the system dialog).
 - Network stream: paste an `http(s)` link to an MP4/WebM file.

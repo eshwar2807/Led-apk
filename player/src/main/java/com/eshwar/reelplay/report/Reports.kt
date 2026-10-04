@@ -78,7 +78,7 @@ object Reports {
 
     fun shareIntent(kind: Kind, body: String): Intent = Intent.createChooser(
         Intent(Intent.ACTION_SEND).setType("text/plain")
-            .putExtra(Intent.EXTRA_SUBJECT, "ReelPlay ${kind.label.lowercase()} report")
+            .putExtra(Intent.EXTRA_SUBJECT, "All Media Player ${kind.label.lowercase()} report")
             .putExtra(Intent.EXTRA_TEXT, body),
         "Share report",
     )
