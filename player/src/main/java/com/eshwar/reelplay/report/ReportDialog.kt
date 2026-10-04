@@ -88,7 +88,11 @@ fun ReportDialog(
                             Text(s.message, color = MaterialTheme.colorScheme.error)
                         }
                         Spacer(Modifier.height(8.dp))
-                        Text("What will be sent:", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            "What will be sent. Your phone's name, email and network addresses are removed; " +
+                                "only what you type above is sent as written.",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                         Text(
                             body.take(4_000) + if (body.length > 4_000) "\n…" else "",
                             style = MaterialTheme.typography.bodySmall,

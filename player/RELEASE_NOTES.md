@@ -1,3 +1,2 @@
-- Fixed "Can't play this video (ERROR_CODE_DECODING_FAILED)" on MKV files: ReelPlay now has its own decoders for audio phones often can't play (DTS, Dolby TrueHD, Dolby Digital and more), like MX Player
-- When the phone's decoder fails partway, ReelPlay recovers by itself: it tries another decoder, then another audio track, and as a last resort plays without sound, telling you what it did
-- Error messages now say which part failed and its format (for example "audio (DTS)" or "video (HEVC 3840×2160)")
+- Privacy: problem reports no longer contain personal details. Your phone's name (and the owner name in it, like "Eshwar's Tab"), Bluetooth names, email addresses, network and hardware addresses are removed before you see the report and before it's sent. Only what you type yourself is sent as written
+- Includes 1.12's fixes for MKV files that wouldn't play (DTS / TrueHD / Dolby audio)

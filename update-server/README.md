@@ -104,6 +104,8 @@ release passes it to the server. Then open:
 
     https://reelplay-updates.fly.dev/reelplay/reports?key=<REPORTS_KEY>
 
+Each report page has **Delete**, and the list has **Delete all**.
+
 Without the key, reading is switched off, but reports are still stored, and every report's
 summary also appears in `fly logs`. If the volume can't be created, the release still deploys
 and reports are only logged.

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -59,6 +60,7 @@ func (rs *reports) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /reelplay/report", rs.receive)
 	mux.HandleFunc("GET /reelplay/reports", rs.list)
 	mux.HandleFunc("GET /reelplay/reports/{id}", rs.show)
+	mux.HandleFunc("POST /reelplay/reports/{id}/delete", rs.delete)
 }
 
 func clientIP(r *http.Request) string {
@@ -165,9 +167,11 @@ ul{padding:0} .muted{color:var(--muted);font-size:13px} pre{white-space:pre-wrap
 <h1>{{.One.Kind}}: {{.One.Summary}}</h1>
 <p class="muted">{{.One.Received.Format "2006-01-02 15:04 MST"}} · ReelPlay {{.One.VersionName}} ({{.One.VersionCode}}) · {{.One.ID}}</p>
 <pre>{{.One.Text}}</pre>
+<form method="post" action="/reelplay/reports/{{.One.ID}}/delete?key={{.Key}}"><button>Delete this report</button></form>
 {{else}}<h1>ReelPlay reports</h1><p class="muted">{{len .All}} newest first</p>
 <ul>{{range .All}}<li><a href="/reelplay/reports/{{.ID}}?key={{$.Key}}">{{.Kind}}: {{.Summary}}</a>
-<div class="muted">{{.Received.Format "2006-01-02 15:04 MST"}} · ReelPlay {{.VersionName}}</div></li>{{else}}<li>No reports yet.</li>{{end}}</ul>{{end}}
+<div class="muted">{{.Received.Format "2006-01-02 15:04 MST"}} · ReelPlay {{.VersionName}}</div></li>{{else}}<li>No reports yet.</li>{{end}}</ul>
+{{if .All}}<form method="post" action="/reelplay/reports/all/delete?key={{.Key}}" onsubmit="return confirm('Delete every report?')"><button>Delete all reports</button></form>{{end}}{{end}}
 </main></body></html>`))
 
 func (rs *reports) list(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +216,34 @@ func (rs *reports) show(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	listTmpl.Execute(w, map[string]any{"One": rep, "Key": rs.key})
+}
+
+// delete removes one report, or every report when the id is "all".
+func (rs *reports) delete(w http.ResponseWriter, r *http.Request) {
+	if !rs.authorized(w, r) {
+		return
+	}
+	id := r.PathValue("id")
+	if id == "all" {
+		entries, _ := os.ReadDir(rs.dir)
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".json") {
+				os.Remove(filepath.Join(rs.dir, e.Name()))
+			}
+		}
+		log.Printf("reports: all deleted")
+	} else {
+		if id != filepath.Base(id) || strings.ContainsAny(id, `/\.`) {
+			http.NotFound(w, r)
+			return
+		}
+		if err := os.Remove(filepath.Join(rs.dir, id+".json")); err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("report %s deleted", id)
+	}
+	http.Redirect(w, r, "/reelplay/reports?key="+url.QueryEscape(rs.key), http.StatusSeeOther)
 }
 
 func clip(s string, n int) string {

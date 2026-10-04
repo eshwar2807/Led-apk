@@ -21,12 +21,19 @@ object Reports {
 
     enum class Kind(val label: String) { PROBLEM("Problem"), CRASH("Crash"), PLAYBACK("Playback error"), TORRENT("Torrent") }
 
-    /** The text that will be sent, shown to the user in full before sending. */
-    fun compose(context: Context, message: String, details: String, appLog: String?): String = buildString {
-        if (message.isNotBlank()) append(message.trim()).append("\n\n")
-        if (details.isNotBlank()) append(details.trim()).append("\n\n")
-        append(CrashReporter.deviceInfo(context))
-        if (!appLog.isNullOrBlank()) append("\n\n--- App log ---\n").append(appLog)
+    /**
+     * The text that will be sent, shown to the user in full before sending. Everything but the
+     * user's own words goes through [Redactor], so no names, addresses or accounts leak in.
+     */
+    fun compose(context: Context, message: String, details: String, appLog: String?): String {
+        val terms = Redactor.personalTerms(context)
+        val collected = buildString {
+            if (details.isNotBlank()) append(details.trim()).append("\n\n")
+            append(CrashReporter.deviceInfo(context))
+            if (!appLog.isNullOrBlank()) append("\n\n--- App log ---\n").append(appLog)
+        }
+        val words = if (message.isNotBlank()) message.trim() + "\n\n" else ""
+        return words + Redactor.redact(collected, terms)
     }
 
     /** This app's own recent log lines; apps may read their own logcat. */

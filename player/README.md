@@ -73,6 +73,9 @@ come from the same composition.
   notice (**Send to developer**) and a torrent's "Why is it slow?" panel all open one dialog: the
   user describes the problem and sees the full text before it's sent (their words, the error,
   device info, and optionally the app's own recent log).
+- Before the user sees it, everything but their own words goes through `Redactor`: the phone's
+  device and Bluetooth names (and the owner's name in "Eshwar's Tab"-style names), email, IPv4
+  and MAC addresses, and the package name (`com.eshwar.reelplay` → `app`) in traces and logs.
 - Reports are POSTed to the update server (`/reelplay/report`), which keeps them on a fly.io
   volume. Read them at `https://<app>.fly.dev/reelplay/reports?key=<REPORTS_KEY>` once the
   `REPORTS_KEY` repository secret is set. If the server can't be reached, the app offers the

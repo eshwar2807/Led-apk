@@ -108,3 +108,37 @@ func TestReportsWithoutStorageAreStillAccepted(t *testing.T) {
 		t.Fatalf("too large: %d", c)
 	}
 }
+
+func TestReportsCanBeDeleted(t *testing.T) {
+	dir := t.TempDir()
+	ts := reportServer(t, dir, "k")
+	for i := 0; i < 3; i++ {
+		post(t, ts.URL, `{"text":"x"}`)
+	}
+	files, _ := os.ReadDir(dir)
+	id := strings.TrimSuffix(files[0].Name(), ".json")
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	del := func(path string) int {
+		res, err := noRedirect.Post(ts.URL+path, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if c := del("/reelplay/reports/" + id + "/delete?key=wrong"); c != 403 {
+		t.Fatalf("wrong key: %d", c)
+	}
+	if c := del("/reelplay/reports/" + id + "/delete?key=k"); c != 303 {
+		t.Fatalf("delete one: %d", c)
+	}
+	if left, _ := os.ReadDir(dir); len(left) != 2 {
+		t.Fatalf("after one delete: %d left", len(left))
+	}
+	if c := del("/reelplay/reports/all/delete?key=k"); c != 303 {
+		t.Fatalf("delete all: %d", c)
+	}
+	if left, _ := os.ReadDir(dir); len(left) != 0 {
+		t.Fatalf("after delete all: %d left", len(left))
+	}
+}
