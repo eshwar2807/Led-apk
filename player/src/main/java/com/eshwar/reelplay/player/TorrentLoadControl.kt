@@ -52,6 +52,11 @@ class TorrentLoadControl(private val delegate: LoadControl) : LoadControl {
         )
         lastPlan = plan
         lastAnswer = plan.ready
+        if (!plan.ready) {
+            // Aim the download at the stretch being waited for.
+            stream.bufferAheadBytes = plan.neededBytes - position
+            stream.focusAt(position)
+        }
         if (plan.ready) lastPlan = null
         return lastAnswer
     }

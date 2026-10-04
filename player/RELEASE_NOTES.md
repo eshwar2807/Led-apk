@@ -1,4 +1,3 @@
-- Torrent streaming starts much sooner: instead of waiting until the whole film could play without a single pause, it waits only until the next 10 minutes will play smoothly (just a few seconds when the download is faster than the video)
-- If the download is slower than the video, playback pauses once to buffer the next smooth 10 minutes, instead of stuttering every few seconds. The player says what it's waiting for and roughly how long
-- "Play now" shows how long it would play before it may need to pause
-- Back from a streaming video returns to the torrent's file list, so you don't have to add the magnet link again
+- Going back while a torrent stream is buffering (or closing the video) no longer throws away what was downloaded. Open the same video again and it carries on from there. The last two streams are kept; older ones are cleaned up
+- Faster streaming: instead of strict front-to-back downloading (which makes every peer chase the same pieces), the next moments of video are fetched against deadlines from the fastest peers, the rest of the buffer gets top priority, and everything else downloads the swarm's most efficient way
+- Seeking moves the download focus to the new spot straight away

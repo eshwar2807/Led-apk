@@ -139,22 +139,71 @@ class TorrentStream(
         return file.read(buffer, offset, want)
     }
 
-    /** Tells libtorrent what the player will want next. Cheap to call on every read. */
+    /**
+     * How much to buffer ahead of the playhead, set by whoever is planning the wait
+     * ([StreamReadiness] on the buffering screen, the player while it rebuffers).
+     */
+    @Volatile var bufferAheadBytes = 0L
+
+    private var windowEnd = -1
+    private var windowBytes = 0L
+
+    /** Points the download at [filePosition] (the playhead) before anything reads there. */
+    fun focusAt(filePosition: Long) = prefetchFrom(pieceAt(filePosition.coerceIn(0, (size - 1).coerceAtLeast(0))))
+
+    /**
+     * Tells libtorrent what the player will want next, in three tiers:
+     *  - the next [CRITICAL_BYTES] get deadlines: fetched first, from the fastest peers;
+     *  - the rest of the planned buffer gets top priority but no deadline, so it's still
+     *    picked rarest-first among peers, which keeps the whole swarm busy;
+     *  - everything else downloads rarest-first at normal priority.
+     * This replaces strict sequential downloading, which makes every peer chase the same next
+     * pieces and wastes most of a swarm's capacity. Cheap to call on every read.
+     */
     @Synchronized
     private fun prefetchFrom(piece: Int) {
-        if (piece == lastWanted) return
-        val window = piecesFor(READ_AHEAD_BYTES, 3, 40)
-        // A jump (seek) makes the old deadlines stale; clear them so the new spot wins.
-        if (lastWanted < 0 || piece < lastWanted || piece > lastWanted + window) {
+        val ahead = maxOf(READ_AHEAD_BYTES, bufferAheadBytes)
+        if (piece == lastWanted && ahead == windowBytes) return
+        val critical = piecesFor(CRITICAL_BYTES, 2, 16)
+        val window = piecesFor(ahead, critical, MAX_WINDOW_PIECES)
+        // A jump (seek) makes the old window stale: clear it so the new spot wins.
+        val jumped = lastWanted < 0 || piece < lastWanted || piece > lastWanted + window
+        if (jumped) {
             try {
                 handle.clearPieceDeadlines()
             } catch (_: Exception) {
             }
+            if (lastWanted >= 0) resetPriorities()
+            windowEnd = piece - 1
         }
         lastWanted = piece
-        val end = minOf(piece + window - 1, lastPiece)
-        for (p in piece..end) {
+        windowBytes = ahead
+        val criticalEnd = minOf(piece + critical - 1, lastPiece)
+        for (p in piece..criticalEnd) {
             if (!has(p)) setDeadline(p, deadlineFor(p - piece + 1))
+        }
+        val end = minOf(piece + window - 1, lastPiece)
+        for (p in maxOf(criticalEnd + 1, windowEnd + 1)..end) {
+            if (!has(p)) setPriority(p, Priority.TOP_PRIORITY)
+        }
+        windowEnd = maxOf(windowEnd, end)
+    }
+
+    /** After a seek: the old window goes back to normal priority (other files stay skipped). */
+    private fun resetPriorities() {
+        try {
+            val count = meta.info.numPieces()
+            val priorities = Array(count) { p -> if (p in firstPiece..lastPiece) Priority.DEFAULT else Priority.IGNORE }
+            // Pieces shared with a neighbouring file only need what this file needs.
+            handle.prioritizePieces(priorities)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun setPriority(piece: Int, priority: Priority) {
+        try {
+            handle.piecePriority(piece, priority)
+        } catch (_: Exception) {
         }
     }
 
@@ -215,6 +264,10 @@ class TorrentStream(
         const val TAIL_BYTES = 4 * MIB
         const val PROBE_BYTES = 4 * MIB
         const val READ_AHEAD_BYTES = 64 * MIB
+        /** Fetched against deadlines: what playback needs in the next moments. */
+        const val CRITICAL_BYTES = 24 * MIB
+        /** Upper bound on the prioritised window, whatever the plan asks for. */
+        const val MAX_WINDOW_PIECES = 600
         const val DEFAULT_RATE = 1.0 * MIB
         const val MIN_DEADLINE_MS = 1_000
         const val MAX_DEADLINE_MS = 10 * 60_000

@@ -120,6 +120,16 @@ come from the same composition.
   stretch, so a slow swarm causes one pause instead of a stutter every few seconds; after a
   seek, a 2-minute stretch so jumping around stays quick. It shows what it's waiting for.
 - Back from the player returns to the torrent's file list (the torrent screen stays underneath).
+- **Piece strategy (2.2):** no sequential mode. `TorrentStream.prefetchFrom` uses three tiers:
+  the next 24 MB get deadlines (time-critical, fastest peers), the rest of the planned buffer
+  (at least 64 MB, up to 600 pieces) gets top priority without deadlines so it's still picked
+  rarest-first, and the rest of the file downloads rarest-first at normal priority. Sequential
+  mode makes every peer compete for the same next pieces and wastes swarm capacity. A seek
+  clears the deadlines and puts the old window back to normal priority.
+- **Parked streams:** closing a stream (backing out of buffering, or closing the video) pauses
+  the torrent and keeps its data instead of deleting it; reopening the same torrent continues.
+  The last two are kept (older ones and their files are dropped, and all are dropped when
+  space runs short or the same torrent is added as a download).
 - Piece deadlines are sized from the measured download speed, so big torrents (with 8–16 MB
   pieces) aren't swamped by deadlines nobody could meet.
 - If the torrent hits an error (for example the disk fills up), the player says so instead of
@@ -129,8 +139,8 @@ come from the same composition.
   player waits on just those.
 - Download speed, peers and progress show under the title, and on screen whenever playback
   is waiting for data.
-- Closing the video stops the torrent and **deletes what it downloaded**. Leftovers from a
-  killed app are cleared the next time a torrent starts.
+- Closing the video parks the torrent (see above). Leftovers from a killed app are cleared the
+  next time a torrent starts.
 - Peers are connected over TCP. libtorrent tries uTP first by default, and its uTP capped
   each connection at about 4 MB/s against 70+ MB/s over TCP in the same local test
   (`downloadsAtFullSpeed` guards this). Incoming uTP connections are still accepted.

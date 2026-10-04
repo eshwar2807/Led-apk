@@ -79,8 +79,9 @@ class TorrentStreamTest {
         val dir = File(root, "leech").apply { mkdirs() }
         val priorities = Array(meta.files.size) { if (it == file.index) Priority.DEFAULT else Priority.IGNORE }
         // The app's own add path (trackers, priorities, flags), plus the seeder as a known peer.
+        // As TorrentEngine.start does: no sequential mode; the stream steers with its window.
         val handle = TorrentEngine.addTorrent(
-            leecher, meta, dir, priorities, TorrentFlags.SEQUENTIAL_DOWNLOAD, listOf(TcpEndpoint("127.0.0.1", seedPort)),
+            leecher, meta, dir, priorities, peers = listOf(TcpEndpoint("127.0.0.1", seedPort)),
         )
         val stream = TorrentStream(handle, meta, file, File(dir, file.path), ownsTorrent = true)
         stream.primeEnds()
@@ -163,6 +164,38 @@ class TorrentStreamTest {
         // The skipped file never gets written out in full.
         val extra = File(dir, meta.files.single { it.name == "a_extra.bin" }.path)
         assertTrue(!extra.exists() || extra.length() < 3 * 1024 * 1024)
+    }
+
+    /**
+     * The stream's three tiers: deadlines just ahead of the playhead, top priority (no
+     * deadline) for the rest of the planned buffer, normal priority beyond; and a seek moves
+     * the window, putting the old one back to normal.
+     */
+    @Test(timeout = 60_000)
+    fun windowPrioritisesThePlannedBuffer_andMovesOnSeek() {
+        val pack = File(root, "seed/pack").apply { mkdirs() }
+        // 512 pieces of 256 KiB; the window is never less than 64 MiB (256 pieces).
+        File(pack, "film.mkv").outputStream().use { out -> repeat(128) { out.write(Random(it).nextBytes(1024 * 1024)) } }
+        val torrentBytes = TorrentBuilder().path(pack).pieceSize(256 * 1024).generate().entry().bencode()
+        val meta = TorrentMeta.parse(torrentBytes)
+        val leecher = session(47950 + Random.nextInt(40))
+        val dir = File(root, "leech").apply { mkdirs() }
+        // No peers: nothing arrives, so priorities stay as the stream set them.
+        val handle = TorrentEngine.addTorrent(leecher, meta, dir, arrayOf(Priority.DEFAULT))
+        val stream = TorrentStream(handle, meta, meta.files.single(), File(dir, meta.files.single().path), ownsTorrent = true)
+
+        stream.bufferAheadBytes = 80L * 1024 * 1024 // 320 pieces: more than the minimum window.
+        stream.focusAt(0)
+        assertEquals(Priority.TOP_PRIORITY, handle.piecePriority(0))
+        assertEquals(Priority.TOP_PRIORITY, handle.piecePriority(300)) // In the planned buffer.
+        assertEquals(Priority.DEFAULT, handle.piecePriority(400)) // Beyond it: rarest-first as usual.
+
+        // Seek far ahead: the window moves there, the old one returns to normal.
+        stream.bufferAheadBytes = 0
+        stream.focusAt(100L * 1024 * 1024)
+        assertEquals(Priority.TOP_PRIORITY, handle.piecePriority(450))
+        assertEquals(Priority.DEFAULT, handle.piecePriority(100))
+        stream.close()
     }
 
     @Test

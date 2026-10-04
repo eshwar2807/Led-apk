@@ -409,6 +409,9 @@ private fun BufferingView(stream: TorrentStream, onPlay: (TorrentStream) -> Unit
             }
             val p = StreamReadiness.plan(stream.size, durationMs, have, rate)
             plan = p
+            // Point the download at what this plan needs (critical start, prioritised stretch).
+            stream.bufferAheadBytes = p.neededBytes
+            withContext(Dispatchers.IO) { stream.focusAt(0) }
             if (endsReady && p.ready && error == null) {
                 onPlay(stream)
                 return@LaunchedEffect

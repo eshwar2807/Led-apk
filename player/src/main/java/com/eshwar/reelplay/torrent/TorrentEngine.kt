@@ -324,12 +324,19 @@ object TorrentEngine {
         streams[key]?.let { return it }
         // Already in Downloads: stream from that copy rather than fight over the torrent.
         if (TorrentDownloads.contains(meta.infoHash)) return TorrentDownloads.streamFile(context, meta.infoHash, file.index)
-        // A stream keeps the whole file on disk while it plays.
-        requireSpace(context, file.size)
         val s = session(context)
+        val wasParked = synchronized(parked) { parked.remove(meta.infoHash) } != null
+        // A stream keeps the whole file on disk while it plays; make room from old parked ones.
+        if (!wasParked) {
+            if (freeBytes(context) < file.size + SPACE_MARGIN) evictParked(keep = 0)
+            requireSpace(context, file.size)
+        }
         val priorities = Array(meta.files.size) { if (it == file.index) Priority.DEFAULT else Priority.IGNORE }
         val dir = File(saveRoot, meta.infoHash).apply { mkdirs() }
-        val handle = addTorrent(s, meta, dir, priorities, TorrentFlags.SEQUENTIAL_DOWNLOAD)
+        // A parked stream of this torrent is still in the session with its pieces: addTorrent
+        // finds it and just switches files. No sequential mode (see TorrentStream.prefetchFrom).
+        val handle = addTorrent(s, meta, dir, priorities)
+        handle.unsetFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
         // Out of libtorrent's queue, so a stream never waits behind downloads.
         handle.unsetFlags(TorrentFlags.AUTO_MANAGED)
         handle.resume()
@@ -359,13 +366,55 @@ object TorrentEngine {
         val stream = stream(uri) ?: return
         streams.remove(key(stream.meta.infoHash, stream.file.index))
         stream.close()
-        if (stream.ownsTorrent && streams.values.none { it.meta.infoHash == stream.meta.infoHash }) {
+        if (stream.ownsTorrent && streams.values.none { it.meta.infoHash == stream.meta.infoHash }) park(stream)
+    }
+
+    /** Streams closed recently, kept paused with their data so reopening carries on. */
+    private val parked = LinkedHashMap<String, TorrentHandle>()
+
+    /**
+     * Instead of throwing a closed stream's data away, pause it and keep it: backing out while
+     * it buffers, or closing the video, then coming back, continues from what's downloaded.
+     * Only the last [MAX_PARKED] are kept; older ones (and their files) are dropped.
+     */
+    private fun park(stream: TorrentStream) {
+        try {
+            stream.handle.clearPieceDeadlines()
+            stream.handle.pause()
+        } catch (_: Exception) {
+        }
+        synchronized(parked) {
+            parked.remove(stream.meta.infoHash)
+            parked[stream.meta.infoHash] = stream.handle
+        }
+        evictParked(keep = MAX_PARKED)
+    }
+
+    /** Drops a parked stream of [infoHash], e.g. before the same torrent is added as a download. */
+    fun dropParked(infoHash: String) {
+        val handle = synchronized(parked) { parked.remove(infoHash) } ?: return
+        try {
+            session?.remove(handle, SessionHandle.DELETE_FILES)
+        } catch (_: Exception) {
+        }
+        if (::saveRoot.isInitialized) File(saveRoot, infoHash).deleteRecursively()
+    }
+
+    private fun evictParked(keep: Int) {
+        val drop = synchronized(parked) {
+            val extra = (parked.size - keep).coerceAtLeast(0)
+            parked.keys.take(extra).map { it to parked.remove(it)!! }
+        }
+        for ((hash, handle) in drop) {
             try {
-                session?.remove(stream.handle, SessionHandle.DELETE_FILES)
+                session?.remove(handle, SessionHandle.DELETE_FILES)
             } catch (_: Exception) {
             }
+            File(saveRoot, hash).deleteRecursively()
         }
     }
+
+    private const val MAX_PARKED = 2
 
     private fun key(hash: String, index: Int) = "$hash/$index"
 

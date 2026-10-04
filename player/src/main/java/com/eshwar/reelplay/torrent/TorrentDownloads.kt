@@ -212,6 +212,8 @@ object TorrentDownloads {
 
     private fun addToSession(record: DownloadRecord, meta: TorrentMeta) {
         val s = TorrentEngine.session(appContext)
+        // A paused stream of the same torrent would otherwise be picked up with its own files.
+        TorrentEngine.dropParked(meta.infoHash)
         val priorities = Array(meta.files.size) { if (it in record.selected) Priority.DEFAULT else Priority.IGNORE }
         val dir = dataDir(record.id).apply { mkdirs() }
         val handle = TorrentEngine.addTorrent(s, meta, dir, priorities)
