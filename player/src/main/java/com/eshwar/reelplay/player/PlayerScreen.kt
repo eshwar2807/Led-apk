@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.BrightnessMedium
 import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.Lock
@@ -198,6 +199,7 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
     // A-B repeat: loop between two points of the current video.
     var abA by remember { mutableStateOf<Long?>(null) }
     var abB by remember { mutableStateOf<Long?>(null) }
+    var renaming by remember { mutableStateOf(false) }
     var sleepAtMs by remember { mutableStateOf<Long?>(null) }
     var sleepAtEnd by remember { mutableStateOf(false) }
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -209,6 +211,29 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
     fun flash(h: GestureHint) {
         hint = h
         hintTick++
+    }
+
+    /** A-B repeat: first tap sets A, second sets B and starts looping, third turns it off. */
+    fun toggleAb() {
+        val at = player.currentPosition
+        when {
+            abA == null -> {
+                abA = at
+                flash(GestureHint("A set at ${formatDuration(at)}", Icons.Rounded.Repeat))
+            }
+            abB == null -> if (at > abA!! + 500) {
+                abB = at
+                player.seekTo(abA!!)
+                flash(GestureHint("Repeating ${formatDuration(abA!!)}–${formatDuration(at)}", Icons.Rounded.Repeat))
+            } else {
+                flash(GestureHint("B must be after A", Icons.Rounded.Repeat))
+            }
+            else -> {
+                abA = null
+                abB = null
+                flash(GestureHint("A-B repeat off", Icons.Rounded.Repeat))
+            }
+        }
     }
 
     // Torrent download numbers, refreshed once a second while one is playing.
@@ -547,7 +572,18 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
             ReportDialog(Reports.Kind.PLAYBACK, details = errorDetails, onDismiss = { reporting = false })
         }
 
-        // ---- Controls ----
+        if (renaming) {
+        RenameDialog(
+            current = title,
+            onDismiss = { renaming = false },
+            onRename = { name ->
+                renaming = false
+                host.renameCurrent(name)
+            },
+        )
+    }
+
+    // ---- Controls ----
         AnimatedVisibility(
             visible = controlsVisible && !inPip,
             enter = fadeIn(),
@@ -584,16 +620,63 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
                         }
                         Column(Modifier.weight(1f)) {
-                            Text(
-                                title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                fontWeight = FontWeight.Medium,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (host.canRenameCurrent()) {
+                                    IconButton(onClick = { poke(); renaming = true }, modifier = Modifier.size(32.dp)) {
+                                        Icon(Icons.Rounded.Edit, "Rename", tint = Color.White, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
                             torrentLine?.let {
                                 Text(
                                     it, color = Color(0xCCFFFFFF), fontSize = 11.sp,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 )
                             }
+                        }
+                        // A-B repeat: "A-B" lights up while A is set, and fills in once it loops.
+                        TextButton(onClick = { poke(); toggleAb() }) {
+                            Text(
+                                when {
+                                    abA == null -> "A-B"
+                                    abB == null -> "A-…"
+                                    else -> "A-B ✓"
+                                },
+                                color = if (abA != null) accent else Color.White,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        IconButton(onClick = {
+                            poke()
+                            player.repeatMode = when (repeatMode) {
+                                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
+                                Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
+                                else -> Player.REPEAT_MODE_OFF
+                            }
+                            flash(
+                                GestureHint(
+                                    when (player.repeatMode) {
+                                        Player.REPEAT_MODE_ONE -> "Repeat this video"
+                                        Player.REPEAT_MODE_ALL -> "Repeat all"
+                                        else -> "Repeat off"
+                                    },
+                                    Icons.Rounded.Repeat,
+                                ),
+                            )
+                        }) {
+                            Icon(
+                                if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                                "Repeat",
+                                tint = if (repeatMode == Player.REPEAT_MODE_OFF) Color.White else accent,
+                            )
+                        }
+                        if (host.canDeleteCurrent()) {
+                            BarButton(Icons.Rounded.Delete, "Delete this video") { poke(); host.deleteCurrent() }
                         }
                         Box {
                             BarButton(Icons.Rounded.MoreVert, "More") { poke(); moreMenu = true }
@@ -612,65 +695,6 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                     text = { Text("Speed: ${formatSpeed(speed)}") },
                                     leadingIcon = { Icon(Icons.Rounded.Speed, null) },
                                     onClick = { moreMenu = false; dialog = PlayerDialog.SPEED },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            when {
-                                                abA == null -> "A-B repeat: set A here"
-                                                abB == null -> "A-B repeat: set B here (A ${formatDuration(abA!!)})"
-                                                else -> "A-B repeat: off (${formatDuration(abA!!)}–${formatDuration(abB!!)})"
-                                            },
-                                        )
-                                    },
-                                    leadingIcon = { Icon(Icons.Rounded.Repeat, null) },
-                                    onClick = {
-                                        moreMenu = false
-                                        val at = player.currentPosition
-                                        when {
-                                            abA == null -> {
-                                                abA = at
-                                                flash(GestureHint("A set at ${formatDuration(at)}", Icons.Rounded.Repeat))
-                                            }
-                                            abB == null -> if (at > abA!! + 500) {
-                                                abB = at
-                                                player.seekTo(abA!!)
-                                                flash(GestureHint("Repeating ${formatDuration(abA!!)}–${formatDuration(at)}", Icons.Rounded.Repeat))
-                                            } else {
-                                                flash(GestureHint("B must be after A", Icons.Rounded.Repeat))
-                                            }
-                                            else -> {
-                                                abA = null
-                                                abB = null
-                                                flash(GestureHint("A-B repeat off", Icons.Rounded.Repeat))
-                                            }
-                                        }
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            when (repeatMode) {
-                                                Player.REPEAT_MODE_ONE -> "Repeat: this video"
-                                                Player.REPEAT_MODE_ALL -> "Repeat: all"
-                                                else -> "Repeat: off"
-                                            },
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne
-                                            else Icons.Rounded.Repeat,
-                                            null,
-                                        )
-                                    },
-                                    onClick = {
-                                        player.repeatMode = when (repeatMode) {
-                                            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
-                                            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
-                                            else -> Player.REPEAT_MODE_OFF
-                                        }
-                                    },
                                 )
                                 DropdownMenuItem(
                                     text = { Text(if (shuffle) "Shuffle: on" else "Shuffle: off") },
@@ -700,13 +724,6 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                     leadingIcon = { Icon(Icons.Rounded.ContentCut, null) },
                                     onClick = { moreMenu = false; host.openInEditor() },
                                 )
-                                if (host.canDeleteCurrent()) {
-                                    DropdownMenuItem(
-                                        text = { Text("Delete this video") },
-                                        leadingIcon = { Icon(Icons.Rounded.Delete, null) },
-                                        onClick = { moreMenu = false; host.deleteCurrent() },
-                                    )
-                                }
                             }
                         }
                     }
@@ -1043,3 +1060,33 @@ private fun SleepDialog(onPick: (Int?) -> Unit, onDismiss: () -> Unit) {
 /** "1x", "1.25x". */
 private fun formatSpeed(speed: Float): String =
     (if (speed % 1f == 0f) speed.toInt().toString() else speed.toString().trimEnd('0')) + "x"
+
+/** Rename the playing video. The extension is kept as it is; only the name is edited. */
+@Composable
+private fun RenameDialog(current: String, onDismiss: () -> Unit, onRename: (String) -> Unit) {
+    val ext = current.substringAfterLast('.', "").takeIf { it.isNotEmpty() && it.length <= 5 && '.' in current }
+    val base = if (ext != null) current.removeSuffix(".$ext") else current
+    var name by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(base, androidx.compose.ui.text.TextRange(0, base.length))) }
+    val clean = name.text.trim()
+    val bad = clean.isEmpty() || clean.any { it in "/\\:*?\"<>|" }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename video") },
+        text = {
+            androidx.compose.material3.OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                suffix = ext?.let { { Text(".$it") } },
+                isError = bad && clean.isNotEmpty(),
+                supportingText = if (bad && clean.isNotEmpty()) ({ Text("Names can't contain / \\ : * ? \" < > |") }) else null,
+            )
+        },
+        confirmButton = {
+            TextButton(enabled = !bad && clean != base, onClick = { onRename(if (ext != null) "$clean.$ext" else clean) }) {
+                Text("Rename")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}

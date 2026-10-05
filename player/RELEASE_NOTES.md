@@ -1,3 +1,2 @@
-- Player: Audio track, Subtitles and Speed moved into the ⋮ menu, for a cleaner top bar
-- A-B repeat (⋮ menu): set A, then B, and that part loops until you turn it off
-- Delete this video (⋮ menu): deletes the playing video after Android's confirmation and moves on to the next one
+- Player top bar: A-B repeat, Repeat and Delete are now buttons next to ⋮. "A-B" lights up while you're setting it and shows a tick while it loops; the Repeat icon lights up when on (repeat one / all)
+- Rename videos from the player: tap the pencil next to the title. The file itself is renamed (Android asks for permission once), the extension is kept, and playback carries on

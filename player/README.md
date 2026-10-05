@@ -45,11 +45,15 @@ come from the same composition.
 - Double-tap left/right third to skip ±10 s, double-tap the middle to pause/play.
 - Pinch to zoom (50–400%).
 
-**Player menu (⋮)**
-- Audio track, Subtitles, Speed, A-B repeat (set A, set B, then off; loops between them and
-  clears on the next video), Repeat, Shuffle, Sleep timer, Load subtitle file, Edit, and
-  **Delete this video** (media-library videos on Android 11+, via the system's delete
-  confirmation; the queue moves on to the next video).
+**Player top bar**
+- Next to ⋮: **A-B** repeat (tap to set A, tap again to set B and loop, again to turn off;
+  cleared on the next video), **Repeat** (off → this video → all; lit when on) and **Delete**
+  (media-library videos on Android 11+, via the system's delete confirmation; the queue moves
+  on to the next video).
+- ✏️ next to the title renames the video's file (MediaStore DISPLAY_NAME, after the system's
+  write-permission prompt; Android 11+, media-library videos). The extension is kept, and the
+  title updates in place without interrupting playback; resume position stays (same URI).
+- ⋮ menu: Audio track, Subtitles, Speed, Shuffle, Sleep timer, Load subtitle file, Edit.
 
 **Seek bar**
 - A thin seek bar in the style of streaming apps: a 3 dp line with a small dot that both grow

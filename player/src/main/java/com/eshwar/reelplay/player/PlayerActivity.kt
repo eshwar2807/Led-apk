@@ -93,6 +93,54 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
         if (result.resultCode == RESULT_OK) removeDeleted(uri)
     }
 
+    /** The rename waiting on Android's write permission: the video and its new name. */
+    private var renamingTo: Pair<Uri, String>? = null
+
+    private val writeConfirm = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val (uri, name) = renamingTo ?: return@registerForActivityResult
+        renamingTo = null
+        if (result.resultCode == RESULT_OK) applyRename(uri, name)
+    }
+
+    override fun canRenameCurrent(): Boolean = canDeleteCurrent()
+
+    override fun renameCurrent(newName: String) {
+        if (!canRenameCurrent() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val uri = player.currentMediaItem?.localConfiguration?.uri ?: return
+        renamingTo = uri to newName
+        try {
+            // Files other apps saved need the user's OK before they can be changed.
+            val sender = android.provider.MediaStore.createWriteRequest(contentResolver, listOf(uri)).intentSender
+            writeConfirm.launch(androidx.activity.result.IntentSenderRequest.Builder(sender).build())
+        } catch (e: Exception) {
+            renamingTo = null
+            Toast.makeText(this, "Couldn't rename: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Renames the file (its display name, which is its name on disk) and shows it at once. */
+    private fun applyRename(uri: Uri, name: String) {
+        try {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+            }
+            if (contentResolver.update(uri, values, null, null) == 0) throw java.io.IOException("the file wasn't found")
+        } catch (e: Exception) {
+            Toast.makeText(this, "Couldn't rename: ${e.message}", Toast.LENGTH_LONG).show()
+            return
+        }
+        // Same file, new title: swap the metadata in place, which doesn't interrupt playback.
+        val index = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).localConfiguration?.uri == uri }
+        if (index != null) {
+            val item = player.getMediaItemAt(index)
+            player.replaceMediaItem(
+                index,
+                item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setTitle(name).build()).build(),
+            )
+        }
+        Toast.makeText(this, "Renamed to $name", Toast.LENGTH_SHORT).show()
+    }
+
     /** Only files in the phone's media library can be deleted from here (Android 11+). */
     override fun canDeleteCurrent(): Boolean {
         val uri = player.currentMediaItem?.localConfiguration?.uri ?: return false
@@ -552,6 +600,9 @@ private fun ResumeDialog(at: Long, onResume: () -> Unit, onStartOver: () -> Unit
 }
 
 interface PlayerHost {
+    fun canRenameCurrent(): Boolean
+    /** Renames the playing video's file (after Android's permission prompt). */
+    fun renameCurrent(newName: String)
     fun canDeleteCurrent(): Boolean
     /** Deletes the playing video (after Android's confirmation) and moves on. */
     fun deleteCurrent()
