@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BrightnessMedium
 import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.material.icons.rounded.ContentCut
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.Lock
@@ -194,6 +195,9 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
     var hintTick by remember { mutableIntStateOf(0) }
     var dialog by remember { mutableStateOf<PlayerDialog?>(null) }
     var moreMenu by remember { mutableStateOf(false) }
+    // A-B repeat: loop between two points of the current video.
+    var abA by remember { mutableStateOf<Long?>(null) }
+    var abB by remember { mutableStateOf<Long?>(null) }
     var sleepAtMs by remember { mutableStateOf<Long?>(null) }
     var sleepAtEnd by remember { mutableStateOf(false) }
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -226,6 +230,26 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
             duration = player.duration.coerceAtLeast(0)
             delay(200)
         }
+    }
+
+    // A-B repeat: back to A whenever playback passes B. A new video clears it.
+    LaunchedEffect(abA, abB) {
+        val a = abA ?: return@LaunchedEffect
+        val b = abB ?: return@LaunchedEffect
+        while (true) {
+            if (player.currentPosition >= b) player.seekTo(a)
+            delay(100)
+        }
+    }
+    DisposableEffect(player) {
+        val clearAb = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                abA = null
+                abB = null
+            }
+        }
+        player.addListener(clearAb)
+        onDispose { player.removeListener(clearAb) }
     }
 
     // Auto-hide controls while playing.
@@ -571,12 +595,58 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                 )
                             }
                         }
-                        BarButton(Icons.Rounded.Audiotrack, "Audio track") { poke(); dialog = PlayerDialog.AUDIO }
-                        BarButton(Icons.Rounded.ClosedCaption, "Subtitles") { poke(); dialog = PlayerDialog.SUBTITLES }
-                        BarButton(Icons.Rounded.Speed, "Speed") { poke(); dialog = PlayerDialog.SPEED }
                         Box {
                             BarButton(Icons.Rounded.MoreVert, "More") { poke(); moreMenu = true }
                             DropdownMenu(moreMenu, onDismissRequest = { moreMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Audio track") },
+                                    leadingIcon = { Icon(Icons.Rounded.Audiotrack, null) },
+                                    onClick = { moreMenu = false; dialog = PlayerDialog.AUDIO },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Subtitles") },
+                                    leadingIcon = { Icon(Icons.Rounded.ClosedCaption, null) },
+                                    onClick = { moreMenu = false; dialog = PlayerDialog.SUBTITLES },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Speed: ${formatSpeed(speed)}") },
+                                    leadingIcon = { Icon(Icons.Rounded.Speed, null) },
+                                    onClick = { moreMenu = false; dialog = PlayerDialog.SPEED },
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            when {
+                                                abA == null -> "A-B repeat: set A here"
+                                                abB == null -> "A-B repeat: set B here (A ${formatDuration(abA!!)})"
+                                                else -> "A-B repeat: off (${formatDuration(abA!!)}–${formatDuration(abB!!)})"
+                                            },
+                                        )
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.Repeat, null) },
+                                    onClick = {
+                                        moreMenu = false
+                                        val at = player.currentPosition
+                                        when {
+                                            abA == null -> {
+                                                abA = at
+                                                flash(GestureHint("A set at ${formatDuration(at)}", Icons.Rounded.Repeat))
+                                            }
+                                            abB == null -> if (at > abA!! + 500) {
+                                                abB = at
+                                                player.seekTo(abA!!)
+                                                flash(GestureHint("Repeating ${formatDuration(abA!!)}–${formatDuration(at)}", Icons.Rounded.Repeat))
+                                            } else {
+                                                flash(GestureHint("B must be after A", Icons.Rounded.Repeat))
+                                            }
+                                            else -> {
+                                                abA = null
+                                                abB = null
+                                                flash(GestureHint("A-B repeat off", Icons.Rounded.Repeat))
+                                            }
+                                        }
+                                    },
+                                )
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -630,6 +700,13 @@ fun PlayerScreen(player: ExoPlayer, host: PlayerHost, inPip: Boolean) {
                                     leadingIcon = { Icon(Icons.Rounded.ContentCut, null) },
                                     onClick = { moreMenu = false; host.openInEditor() },
                                 )
+                                if (host.canDeleteCurrent()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Delete this video") },
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, null) },
+                                        onClick = { moreMenu = false; host.deleteCurrent() },
+                                    )
+                                }
                             }
                         }
                     }
@@ -962,3 +1039,7 @@ private fun SleepDialog(onPick: (Int?) -> Unit, onDismiss: () -> Unit) {
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** "1x", "1.25x". */
+private fun formatSpeed(speed: Float): String =
+    (if (speed % 1f == 0f) speed.toInt().toString() else speed.toString().trimEnd('0')) + "x"

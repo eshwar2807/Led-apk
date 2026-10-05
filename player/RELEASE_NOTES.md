@@ -1,3 +1,3 @@
-- Going back while a torrent stream is buffering (or closing the video) no longer throws away what was downloaded. Open the same video again and it carries on from there. The last two streams are kept; older ones are cleaned up
-- Faster streaming: instead of strict front-to-back downloading (which makes every peer chase the same pieces), the next moments of video are fetched against deadlines from the fastest peers, the rest of the buffer gets top priority, and everything else downloads the swarm's most efficient way
-- Seeking moves the download focus to the new spot straight away
+- Player: Audio track, Subtitles and Speed moved into the ⋮ menu, for a cleaner top bar
+- A-B repeat (⋮ menu): set A, then B, and that part loops until you turn it off
+- Delete this video (⋮ menu): deletes the playing video after Android's confirmation and moves on to the next one

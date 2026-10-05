@@ -84,6 +84,52 @@ class PlayerActivity : ComponentActivity(), PlayerHost {
 
     private val inPip = mutableStateOf(false)
 
+    /** The video waiting on Android's delete confirmation. */
+    private var deleting: Uri? = null
+
+    private val deleteConfirm = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val uri = deleting ?: return@registerForActivityResult
+        deleting = null
+        if (result.resultCode == RESULT_OK) removeDeleted(uri)
+    }
+
+    /** Only files in the phone's media library can be deleted from here (Android 11+). */
+    override fun canDeleteCurrent(): Boolean {
+        val uri = player.currentMediaItem?.localConfiguration?.uri ?: return false
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && uri.scheme == "content" &&
+            uri.authority == android.provider.MediaStore.AUTHORITY
+    }
+
+    override fun deleteCurrent() {
+        if (!canDeleteCurrent() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val uri = player.currentMediaItem?.localConfiguration?.uri ?: return
+        player.pause()
+        deleting = uri
+        try {
+            // Android asks the user to confirm, then deletes it.
+            val sender = android.provider.MediaStore.createDeleteRequest(contentResolver, listOf(uri)).intentSender
+            deleteConfirm.launch(androidx.activity.result.IntentSenderRequest.Builder(sender).build())
+        } catch (e: Exception) {
+            deleting = null
+            Toast.makeText(this, "Couldn't delete: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Takes a deleted video out of the queue and plays on, or closes if it was the only one. */
+    private fun removeDeleted(uri: Uri) {
+        prefs.forget(uri)
+        val index = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).localConfiguration?.uri == uri }
+        Toast.makeText(this, "Video deleted", Toast.LENGTH_SHORT).show()
+        if (index == null) return
+        if (player.mediaItemCount <= 1) {
+            finish()
+            return
+        }
+        player.removeMediaItem(index)
+        player.prepare()
+        player.play()
+    }
+
     private val subtitlePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) attachSubtitle(uri)
     }
@@ -506,6 +552,9 @@ private fun ResumeDialog(at: Long, onResume: () -> Unit, onStartOver: () -> Unit
 }
 
 interface PlayerHost {
+    fun canDeleteCurrent(): Boolean
+    /** Deletes the playing video (after Android's confirmation) and moves on. */
+    fun deleteCurrent()
     /** What a buffering torrent is waiting for, or null. */
     fun torrentBufferPlan(): com.eshwar.reelplay.torrent.StreamReadiness.Plan?
     /** Tries to get past a decoder error; returns what it did, or null if it couldn't. */

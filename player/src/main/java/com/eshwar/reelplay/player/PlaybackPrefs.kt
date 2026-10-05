@@ -54,6 +54,16 @@ class PlaybackPrefs(context: Context) {
         remove(LAST_TITLE)
     }
 
+    /** Drops everything remembered about [uri] (it was deleted). */
+    fun forget(uri: Uri) = prefs.edit {
+        remove(key(uri))
+        remove(playedKey(uri))
+        if (prefs.getString(LAST_URI, null) == uri.toString()) {
+            remove(LAST_URI)
+            remove(LAST_TITLE)
+        }
+    }
+
     var playbackSpeed: Float
         get() = prefs.getFloat(SPEED, 1f)
         set(value) = prefs.edit { putFloat(SPEED, value) }

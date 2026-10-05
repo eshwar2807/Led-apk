@@ -45,6 +45,12 @@ come from the same composition.
 - Double-tap left/right third to skip ±10 s, double-tap the middle to pause/play.
 - Pinch to zoom (50–400%).
 
+**Player menu (⋮)**
+- Audio track, Subtitles, Speed, A-B repeat (set A, set B, then off; loops between them and
+  clears on the next video), Repeat, Shuffle, Sleep timer, Load subtitle file, Edit, and
+  **Delete this video** (media-library videos on Android 11+, via the system's delete
+  confirmation; the queue moves on to the next video).
+
 **Seek bar**
 - A thin seek bar in the style of streaming apps: a 3 dp line with a small dot that both grow
   while you drag, with buffered video shown behind the played part. Tap anywhere on it to jump.
