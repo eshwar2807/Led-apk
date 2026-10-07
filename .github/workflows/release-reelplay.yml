@@ -1,0 +1,271 @@
+name: Release ReelPlay
+
+# Builds a signed ReelPlay release and publishes it to the fly.io update server, where
+# installed apps find it within a few hours (or straight away via "Check for updates").
+#
+# Three ways to start it:
+#   - edit player/RELEASE_NOTES.md (the notes users see) and push, on any branch;
+#   - run it from the Actions tab, with release notes;
+#   - push a tag like reelplay-v1.4 (its message becomes the notes).
+# Bump versionCode/versionName in player/build.gradle.kts first: the job refuses to publish
+# anything that isn't newer than what's live.
+#
+# Needs these repository secrets (Settings → Secrets and variables → Actions):
+#   FLY_API_TOKEN            `fly tokens create org` (lets this job create the app on the first run;
+#                            a deploy token from `fly tokens create deploy -a <app>` also works once
+#                            the app exists)
+#   RELEASE_KEYSTORE_BASE64  the signing keystore, base64-encoded
+#   RELEASE_STORE_PASSWORD   its password
+#   RELEASE_KEY_ALIAS        the key's alias
+#   RELEASE_KEY_PASSWORD     the key's password
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "What's new (shown in the update prompt)"
+        required: true
+        default: "Bug fixes and improvements."
+  push:
+    # Branch pushes release only when the notes file changes; GitHub doesn't apply path
+    # filters to tag pushes, so a reelplay-v* tag always releases.
+    branches: ["**"]
+    tags: ["reelplay-v*"]
+    paths: ["player/RELEASE_NOTES.md"]
+
+concurrency:
+  group: release-reelplay
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          missing=""
+          for name in FLY_API_TOKEN RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [ -n "${!name}" ]; then echo "OK      $name"; else echo "MISSING $name"; missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. Add them under Settings → Secrets and variables → Actions → Repository secrets, with exactly these names."
+            exit 1
+          fi
+          # Pasted secrets often carry an invisible trailing newline or space; drop it.
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'; }
+          RELEASE_STORE_PASSWORD=$(trim "$RELEASE_STORE_PASSWORD")
+          RELEASE_KEY_PASSWORD=$(trim "$RELEASE_KEY_PASSWORD")
+          RELEASE_KEY_ALIAS=$(trim "$RELEASE_KEY_ALIAS")
+          # Catch a bad paste before a 10-minute build, and say which part is wrong.
+          # Pastes often carry line breaks, Windows CRs or certutil's BEGIN/END lines: drop them.
+          decode() { printf '%s' "$RELEASE_KEYSTORE_BASE64" | sed -E 's/-----[A-Z ]+-----//g' | tr -d ' \t\r\n' | base64 -d; }
+          if ! decode > "$RUNNER_TEMP/check.keystore" 2>/dev/null || [ ! -s "$RUNNER_TEMP/check.keystore" ]; then
+            echo "::error::RELEASE_KEYSTORE_BASE64 isn't valid base64. Re-copy the encoded keystore text."
+            exit 1
+          fi
+          echo "Decoded keystore: $(stat -c %s "$RUNNER_TEMP/check.keystore") bytes"
+          if ! out=$(keytool -list -keystore "$RUNNER_TEMP/check.keystore" -storepass "$RELEASE_STORE_PASSWORD" 2>&1); then
+            if echo "$out" | grep -qi 'password'; then
+              echo "::error::The keystore decoded, but RELEASE_STORE_PASSWORD doesn't open it (even ignoring spaces and line breaks around it). Re-enter the exact password you typed when running keytool."
+            else
+              echo "::error::RELEASE_KEYSTORE_BASE64 decodes, but not to a keystore. Encode the .keystore file itself (not a certificate or the .jks path)."
+            fi
+            echo "keytool said: $(echo "$out" | head -3)"
+            exit 1
+          fi
+          if ! keytool -list -keystore "$RUNNER_TEMP/check.keystore" -storepass "$RELEASE_STORE_PASSWORD" -alias "$RELEASE_KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::The keystore opens, but has no key named by RELEASE_KEY_ALIAS. It contains:"
+            echo "$out" | grep -iE 'PrivateKeyEntry|Alias name' | sed 's/,.*//'
+            exit 1
+          fi
+          # keytool's default PKCS12 keystores have no separate key password: the keystore's
+          # opens the key. The build step uses it, whatever RELEASE_KEY_PASSWORD says.
+          if keytool -list -keystore "$RUNNER_TEMP/check.keystore" -storepass "$RELEASE_STORE_PASSWORD" 2>/dev/null \
+               | grep -q 'Keystore type: PKCS12' && [ "$RELEASE_KEY_PASSWORD" != "$RELEASE_STORE_PASSWORD" ]; then
+            echo "::warning::RELEASE_KEY_PASSWORD differs from RELEASE_STORE_PASSWORD; this is a PKCS12 keystore, so the keystore password is used for the key."
+          fi
+          rm -f "$RUNNER_TEMP/check.keystore"
+          echo "Keystore opens and contains alias $RELEASE_KEY_ALIAS"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Read fly.io app name
+        id: fly
+        run: |
+          app=$(sed -n 's/^app *= *"\(.*\)".*/\1/p' update-server/fly.toml)
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "url=https://$app.fly.dev/reelplay/" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed APK
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          # Pasted secrets often carry an invisible trailing newline or space; drop it.
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'; }
+          RELEASE_STORE_PASSWORD=$(trim "$RELEASE_STORE_PASSWORD")
+          RELEASE_KEY_PASSWORD=$(trim "$RELEASE_KEY_PASSWORD")
+          RELEASE_KEY_ALIAS=$(trim "$RELEASE_KEY_ALIAS")
+          export RELEASE_STORE_FILE="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | sed -E 's/-----[A-Z ]+-----//g' | tr -d ' \t\r\n' | base64 -d > "$RELEASE_STORE_FILE"
+          if keytool -list -keystore "$RELEASE_STORE_FILE" -storepass "$RELEASE_STORE_PASSWORD" 2>/dev/null | grep -q 'Keystore type: PKCS12'; then
+            RELEASE_KEY_PASSWORD="$RELEASE_STORE_PASSWORD"
+          fi
+          export RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD RELEASE_KEY_ALIAS
+          ./gradlew :player:assembleRelease :player:testDebugUnitTest \
+            -PreelplayUpdateUrl='${{ steps.fly.outputs.url }}' --stacktrace
+          rm -f "$RELEASE_STORE_FILE"
+
+      - name: Prepare release
+        id: release
+        env:
+          NOTES_INPUT: ${{ github.event.inputs.notes }}
+        run: |
+          apk=player/build/outputs/apk/release/player-release.apk
+          badging=$("$ANDROID_HOME/build-tools/37.0.0/aapt2" dump badging "$apk" | head -1)
+          code=$(echo "$badging" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+          name=$(echo "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$apk" | head -3
+
+          # Only ever move forward: an older or equal versionCode would never be offered.
+          live=$(curl -fsS '${{ steps.fly.outputs.url }}latest.json' | python3 -c 'import json,sys; print(json.load(sys.stdin)["versionCode"])' || echo 0)
+          echo "Live: $live, this build: $code ($name)"
+          if [ "$code" -le "$live" ]; then
+            echo "::error::versionCode $code is not newer than the live $live. Bump it in player/build.gradle.kts."
+            exit 1
+          fi
+
+          notes="$NOTES_INPUT"
+          if [ -z "$notes" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            notes=$(git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" 2>/dev/null)
+          fi
+          [ -n "$notes" ] || notes=$(cat player/RELEASE_NOTES.md 2>/dev/null)
+          [ -n "$notes" ] || notes=$(git log -1 --format=%s)
+
+          out=update-server/release
+          file="ReelPlay-$code.apk"
+          cp "$apk" "$out/$file"
+          NOTES="$notes" CODE="$code" NAME="$name" FILE="$file" python3 - <<'PY'
+          import hashlib, json, os, datetime
+          path = os.path.join("update-server/release", os.environ["FILE"])
+          data = open(path, "rb").read()
+          manifest = {
+              "versionCode": int(os.environ["CODE"]),
+              "versionName": os.environ["NAME"],
+              "apk": os.environ["FILE"],
+              "sha256": hashlib.sha256(data).hexdigest(),
+              "size": len(data),
+              "notes": os.environ["NOTES"],
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
+          }
+          json.dump(manifest, open("update-server/release/latest.json", "w"), indent=2)
+          print(json.dumps(manifest, indent=2))
+          PY
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Test update server
+        working-directory: update-server
+        run: go test ./...
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create the fly.io app if it doesn't exist yet
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          app='${{ steps.fly.outputs.app }}'
+          if flyctl status --app "$app" >/dev/null 2>&1; then
+            echo "App $app exists"
+          elif flyctl apps create "$app"; then
+            echo "Created $app"
+          else
+            echo "::error::Couldn't create fly.io app '$app'. The name may be taken (change 'app' in update-server/fly.toml), or FLY_API_TOKEN is a deploy token for another app (use 'fly tokens create org')."
+            exit 1
+          fi
+
+      - name: Set up report storage
+        working-directory: update-server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          REPORTS_KEY: ${{ secrets.REPORTS_KEY }}
+        run: |
+          app='${{ steps.fly.outputs.app }}'
+          # The password for reading reports, if one has been chosen.
+          key=$(printf '%s' "$REPORTS_KEY" | tr -d '\r\n')
+          if [ -n "$key" ]; then
+            flyctl secrets set REPORTS_KEY="$key" --app "$app" --stage
+          else
+            echo "::notice::Add a REPORTS_KEY repository secret to read app reports at /reelplay/reports?key=..."
+          fi
+          has_volume() {
+            flyctl volumes list --app "$app" --json | python3 -c 'import json,sys; sys.exit(0 if any(v.get("name")=="reports" for v in json.load(sys.stdin) or []) else 1)'
+          }
+          if has_volume; then
+            echo "Report volume exists"
+            exit 0
+          fi
+          region=$(sed -n 's/^primary_region *= *"\(.*\)".*/\1/p' fly.toml)
+          if flyctl volumes create reports --app "$app" --region "$region" --size 1 --yes; then
+            # Machines made before the volume existed can't take it on: replace them, and the
+            # deploy below creates one with the volume attached.
+            for id in $(flyctl machines list --app "$app" --json | python3 -c 'import json,sys; [print(m["id"]) for m in json.load(sys.stdin) or [] if not (m.get("config") or {}).get("mounts")]'); do
+              flyctl machines destroy "$id" --app "$app" --force
+            done
+          else
+            # Never block a release on this: deploy without storage; reports are then only logged.
+            echo "::warning::Couldn't create the report volume; reports will only appear in fly logs."
+            python3 - <<'PY'
+          import re
+          p = "fly.toml"
+          s = open(p).read()
+          s = re.sub(r"\n\[mounts\]\n(?:  .*\n)*", "\n", s)
+          s = s.replace('REPORTS_DIR = "/data/reports"', 'REPORTS_DIR = ""')
+          open(p, "w").write(s)
+          PY
+          fi
+
+      - name: Deploy to fly.io
+        working-directory: update-server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        # One machine: a volume belongs to a single machine.
+        run: flyctl deploy --remote-only --ha=false --app '${{ steps.fly.outputs.app }}'
+
+      - name: Check it's live
+        run: |
+          for i in 1 2 3 4 5 6; do
+            got=$(curl -fsS '${{ steps.fly.outputs.url }}latest.json' | python3 -c 'import json,sys; print(json.load(sys.stdin)["versionCode"])' || echo 0)
+            [ "$got" = "${{ steps.release.outputs.code }}" ] && { echo "Live: $got"; exit 0; }
+            sleep 10
+          done
+          echo "::error::Server still reports versionCode $got"
+          exit 1
+
+      - name: Keep the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: reelplay-release
+          path: update-server/release/${{ steps.release.outputs.file }}

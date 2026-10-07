@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "TorchGlow"
 include(":app")
+include(":player")

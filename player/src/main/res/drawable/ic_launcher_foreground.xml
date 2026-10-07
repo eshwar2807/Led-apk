@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Film frame -->
+    <path
+        android:fillColor="#3D8BFF"
+        android:pathData="M32,34 h44 a6,6 0 0 1 6,6 v28 a6,6 0 0 1 -6,6 h-44 a6,6 0 0 1 -6,-6 v-28 a6,6 0 0 1 6,-6 Z" />
+    <!-- Play triangle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,43 L66,54 L48,65 Z" />
+    <!-- Edit spark -->
+    <path
+        android:fillColor="#FF7A45"
+        android:pathData="M78,26 l3,7 7,3 -7,3 -3,7 -3,-7 -7,-3 7,-3 Z" />
+</vector>
