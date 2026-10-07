@@ -76,8 +76,14 @@ object CompositionFactory {
         }
         video += filterEffects(clip.filter)
         video += adjustEffects(clip.adjust)
-        // Fit every clip into the same canvas, letterboxing as needed.
-        video += Presentation.createForWidthAndHeight(outW, outH, Presentation.LAYOUT_SCALE_TO_FIT)
+        // Fit every clip into the same canvas, letterboxing as needed. Skipped when it would
+        // change nothing (one clip, already that size): with no effects at all, a trim can be
+        // copied rather than re-encoded, which keeps the original quality exactly.
+        val sameSize = project.clips.size == 1 && clip.rotation % 180 == 0 &&
+            clip.info.width == outW && clip.info.height == outH
+        if (!sameSize || video.isNotEmpty()) {
+            video += Presentation.createForWidthAndHeight(outW, outH, Presentation.LAYOUT_SCALE_TO_FIT)
+        }
         if (clip.texts.isNotEmpty()) {
             video += OverlayEffect(listOf(TextCanvasOverlay(clip.texts)))
         }

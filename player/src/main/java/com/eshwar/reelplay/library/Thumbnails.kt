@@ -63,26 +63,29 @@ object Thumbnails {
     }
 
     /** One frame at [timeUs], scaled so its long side is about [maxSide] pixels. */
-    suspend fun frame(context: Context, uri: Uri, timeUs: Long, maxSide: Int = 200): Bitmap? {
-        val key = "$uri@$timeUs/$maxSide"
+    suspend fun frame(context: Context, uri: Uri, timeUs: Long, maxSide: Int = 200, exact: Boolean = false): Bitmap? {
+        val key = "$uri@$timeUs/$maxSide/$exact"
         cache.get(key)?.let { return it }
         return gate.withPermit {
             withContext(Dispatchers.IO) {
-                frameAt(context, uri, timeUs, maxSide)?.also { cache.put(key, it) }
+                frameAt(context, uri, timeUs, maxSide, exact)?.also { cache.put(key, it) }
             }
         }
     }
 
-    private fun frameAt(context: Context, uri: Uri, timeUs: Long, maxSide: Int): Bitmap? {
+    private fun frameAt(context: Context, uri: Uri, timeUs: Long, maxSide: Int, exact: Boolean = false): Bitmap? {
+        // Exact: the frame at that moment (decodes from the keyframe before it; slower).
+        // Otherwise the nearest keyframe, which is fast and fine for a library preview.
+        val option = if (exact) MediaMetadataRetriever.OPTION_CLOSEST else MediaMetadataRetriever.OPTION_CLOSEST_SYNC
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
             val raw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 retriever.getScaledFrameAtTime(
-                    timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, maxSide, maxSide,
+                    timeUs, option, maxSide, maxSide,
                 )
             } else {
-                retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                retriever.getFrameAtTime(timeUs, option)
             }
             raw ?: retriever.frameAtTime
         } catch (_: Exception) {
@@ -105,14 +108,14 @@ private fun decodeImage(context: Context, uri: Uri, maxSide: Int): Bitmap? = try
 }
 
 @Composable
-fun VideoThumbnail(uri: Uri, modifier: Modifier = Modifier, timeUs: Long? = null) {
+fun VideoThumbnail(uri: Uri, modifier: Modifier = Modifier, timeUs: Long? = null, exact: Boolean = false) {
     val context = LocalContext.current
     val bitmap by produceState(
         initialValue = if (timeUs == null) Thumbnails.cached(uri.toString()) else null,
         uri, timeUs,
     ) {
         value = if (timeUs == null) Thumbnails.forUri(context, uri)
-        else Thumbnails.frame(context, uri, timeUs)
+        else Thumbnails.frame(context, uri, timeUs, exact = exact)
     }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         val bmp = bitmap

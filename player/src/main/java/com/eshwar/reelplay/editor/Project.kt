@@ -11,6 +11,12 @@ data class MediaInfo(
     val height: Int,
     val hasAudio: Boolean,
     val isImage: Boolean,
+    /** Whole-file bitrate in bits/s, 0 if unknown. Exports aim at least this high. */
+    val bitrate: Int = 0,
+    /** Frames per second, 0 if unknown. */
+    val frameRate: Float = 0f,
+    /** The video codec, e.g. video/hevc; null if unknown. */
+    val videoMime: String? = null,
 )
 
 enum class FilterPreset(val label: String) {
@@ -143,6 +149,23 @@ data class Project(
 
     val aspect: Float
         get() = canvas.ratio ?: clips.firstOrNull()?.aspect ?: (9f / 16f)
+
+    /** One video frame at [positionMs] on the timeline: the clip's frame time after its speed. */
+    fun frameStepMs(positionMs: Long): Long {
+        var start = 0L
+        for (clip in clips) {
+            if (positionMs < start + clip.outputDurationMs || clip == clips.last()) {
+                val fps = clip.info.frameRate.takeIf { it in 1f..240f } ?: 30f
+                return (1000.0 / fps / (if (clip.isImage) 1f else clip.speed)).toLong().coerceAtLeast(1)
+            }
+            start += clip.outputDurationMs
+        }
+        return 33
+    }
+
+    /** The largest clip's short side after rotation: exporting at this keeps full resolution. */
+    fun originalShortSide(): Int =
+        clips.maxOfOrNull { minOf(it.info.width, it.info.height) }?.takeIf { it > 0 }?.let { ((it + 1) / 2) * 2 } ?: resolution
 
     /** Output frame size for a given short side, rounded to even numbers as encoders need. */
     fun outputSize(shortSide: Int = resolution): Pair<Int, Int> {

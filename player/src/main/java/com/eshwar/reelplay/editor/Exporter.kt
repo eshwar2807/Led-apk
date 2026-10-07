@@ -11,12 +11,16 @@ import android.provider.MediaStore
 import androidx.annotation.OptIn
 import androidx.core.content.FileProvider
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.DefaultEncoderFactory
+import androidx.media3.transformer.VideoEncoderSettings
+import android.media.MediaCodecInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -28,7 +32,7 @@ import java.util.Locale
  * Runs one Transformer export to a temp file, then publishes it to Movies/ReelPlay.
  * All calls happen on the main thread, which is where Transformer wants them.
  */
-@OptIn(UnstableApi::class)
+@OptIn(UnstableApi::class, ExperimentalApi::class)
 class Exporter(private val context: Context) {
 
     sealed interface State {
@@ -42,12 +46,27 @@ class Exporter(private val context: Context) {
     private val handler = Handler(Looper.getMainLooper())
     private var poller: Runnable? = null
 
-    fun start(composition: Composition, onState: (State) -> Unit, onFinished: (File) -> Unit) {
+    fun start(composition: Composition, quality: ExportQuality, onState: (State) -> Unit, onFinished: (File) -> Unit) {
         cancel()
         val out = File(context.cacheDir, "export-${System.currentTimeMillis()}.mp4")
+        // Encoder at the original's quality (see ExportQuality), falling back gracefully on
+        // phones whose encoder can't do the exact settings.
+        val encoders = DefaultEncoderFactory.Builder(context)
+            .setRequestedVideoEncoderSettings(
+                VideoEncoderSettings.Builder()
+                    .setBitrate(quality.videoBitrate)
+                    .setBitrateMode(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+                    .build(),
+            )
+            .setEnableFallback(true)
+            .build()
         val t = Transformer.Builder(context)
-            .setVideoMimeType(MimeTypes.VIDEO_H264)
+            .setEncoderFactory(encoders)
+            .setVideoMimeType(quality.videoMime)
             .setAudioMimeType(MimeTypes.AUDIO_AAC)
+            // A plain trim copies the video and only re-encodes the frames up to the first
+            // keyframe after the cut, so it comes out identical to the original.
+            .experimentalSetTrimOptimizationEnabled(true)
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                     stopPolling()

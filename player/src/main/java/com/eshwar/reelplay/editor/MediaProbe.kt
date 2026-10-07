@@ -41,6 +41,20 @@ object MediaProbe {
         return uri.lastPathSegment ?: "Clip"
     }
 
+    /** The video track's codec, read from the container. */
+    private fun videoMime(context: Context, uri: Uri): String? {
+        val ex = android.media.MediaExtractor()
+        return try {
+            ex.setDataSource(context, uri, null)
+            (0 until ex.trackCount).map { ex.getTrackFormat(it).getString(android.media.MediaFormat.KEY_MIME) }
+                .firstOrNull { it?.startsWith("video/") == true }
+        } catch (_: Exception) {
+            null
+        } finally {
+            ex.release()
+        }
+    }
+
     private fun probeVideo(context: Context, uri: Uri, name: String): MediaInfo? {
         val r = MediaMetadataRetriever()
         return try {
@@ -52,7 +66,17 @@ object MediaProbe {
             val rotation = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
             if (rotation % 180 != 0) w = h.also { h = w }
             val hasAudio = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
-            MediaInfo(name, duration, w, h, hasAudio, isImage = false)
+            val bitrate = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toIntOrNull() ?: 0
+            val frames = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)?.toLongOrNull() ?: 0L
+            } else {
+                0L
+            }
+            val fps = when {
+                frames > 0 && duration > 0 -> frames * 1000f / duration
+                else -> r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)?.toFloatOrNull() ?: 0f
+            }
+            MediaInfo(name, duration, w, h, hasAudio, isImage = false, bitrate = bitrate, frameRate = fps, videoMime = videoMime(context, uri))
         } catch (_: Exception) {
             null
         } finally {

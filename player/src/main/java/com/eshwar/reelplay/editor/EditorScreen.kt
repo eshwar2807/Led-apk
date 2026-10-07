@@ -1,5 +1,17 @@
 package com.eshwar.reelplay.editor
 
+import androidx.compose.material.icons.rounded.ZoomIn
+import androidx.compose.material.icons.rounded.ZoomOut
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.key
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
@@ -44,6 +56,8 @@ import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.AlertDialog
@@ -383,6 +397,14 @@ fun EditorScreen(
                 "${formatDuration(positionMs)} / ${formatDuration(project.durationMs)}",
                 color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f),
             )
+            // One frame back / forward, for cutting exactly where you want.
+            IconButton(
+                onClick = {
+                    player.pause()
+                    seekTo((positionMs - project.frameStepMs(positionMs)).coerceAtLeast(0))
+                },
+                enabled = project.clips.isNotEmpty(),
+            ) { Icon(Icons.Rounded.SkipPrevious, "Previous frame", tint = Color.White) }
             IconButton(
                 onClick = {
                     if (isPlaying) player.pause() else {
@@ -397,6 +419,13 @@ fun EditorScreen(
                     if (isPlaying) "Pause" else "Play", tint = Color.White, modifier = Modifier.size(32.dp),
                 )
             }
+            IconButton(
+                onClick = {
+                    player.pause()
+                    seekTo((positionMs + project.frameStepMs(positionMs)).coerceAtMost((project.durationMs - 1).coerceAtLeast(0)))
+                },
+                enabled = project.clips.isNotEmpty(),
+            ) { Icon(Icons.Rounded.SkipNext, "Next frame", tint = Color.White) }
             Text(
                 project.canvas.label + " · " + project.clips.size + " clip" + if (project.clips.size == 1) "" else "s",
                 color = Color.Gray, fontSize = 12.sp, modifier = Modifier.weight(1f),
@@ -503,6 +532,7 @@ fun EditorScreen(
                 player.stop()
                 exporter.start(
                     CompositionFactory.build(project, resolution),
+                    ExportQuality.forProject(project, resolution),
                     onState = { exportState = it },
                     onFinished = { file ->
                         val size = file.length()
@@ -562,10 +592,22 @@ private fun Timeline(
 ) {
     val density = LocalDensity.current
     val total = project.durationMs
-    // Long projects get squeezed so the whole thing stays scrollable in a few swipes.
-    val dpPerSecond = remember(total) {
+    // Long projects start squeezed so the whole thing fits in a few swipes; pinch (or +/−)
+    // zooms in until every frame has its own thumbnail.
+    val baseDpPerSecond = remember(total) {
         val seconds = max(1f, total / 1000f)
         (2400f / seconds).coerceIn(6f, 64f)
+    }
+    var zoom by remember { mutableFloatStateOf(1f) }
+    // Compose can't lay out anything wider than about 260,000 px, so very long projects
+    // can't zoom in quite as far.
+    val maxDpPerSecond = remember(total, density) {
+        val seconds = max(1f, total / 1000f)
+        (MAX_TIMELINE_PX / density.density / seconds).coerceIn(MIN_DP_PER_SECOND, MAX_DP_PER_SECOND)
+    }
+    val dpPerSecond = (baseDpPerSecond * zoom).coerceIn(MIN_DP_PER_SECOND, maxDpPerSecond)
+    fun zoomBy(factor: Float) {
+        zoom = (baseDpPerSecond * zoom * factor).coerceIn(MIN_DP_PER_SECOND, maxDpPerSecond) / baseDpPerSecond
     }
     val pxPerMs = with(density) { dpPerSecond.dp.toPx() } / 1000f
     val scroll = rememberScrollState()
@@ -595,8 +637,28 @@ private fun Timeline(
         if (!userScrolling) scroll.scrollTo((positionMs * pxPerMs).toInt())
     }
 
-    BoxWithConstraints(Modifier.fillMaxWidth().height(if (project.music != null) 112.dp else 88.dp)) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .height(if (project.music != null) 112.dp else 88.dp)
+            // Two fingers zoom; one finger still scrolls. Looked at before the scroll sees it.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    do {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.count { it.pressed } >= 2) {
+                            val z = event.calculateZoom()
+                            if (z != 1f) zoomBy(z)
+                            event.changes.forEach { it.consume() }
+                        }
+                    } while (event.changes.any { it.pressed })
+                }
+            },
+    ) {
         val half = maxWidth / 2
+        val halfPx = with(density) { half.toPx() }
+        val viewportPx = with(density) { maxWidth.toPx() }
         Column(
             Modifier
                 .fillMaxHeight()
@@ -604,9 +666,18 @@ private fun Timeline(
                 .padding(start = half, end = 0.dp, top = 8.dp, bottom = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                var clipStartPx = 0f
                 project.clips.forEach { clip ->
-                    val width = with(density) { (clip.outputDurationMs * pxPerMs).toDp() }
-                    ClipBlock(clip, width, selected = clip.id == selectedId) { onSelect(clip.id) }
+                    val widthPx = clip.outputDurationMs * pxPerMs
+                    val width = with(density) { widthPx.toDp() }
+                    // What part of this clip is on screen, so only those frames are decoded.
+                    val offset = clipStartPx
+                    ClipBlock(
+                        clip, width, selected = clip.id == selectedId,
+                        visibleFromPx = { scroll.value - halfPx - offset },
+                        viewportPx = viewportPx,
+                    ) { onSelect(clip.id) }
+                    clipStartPx += widthPx
                 }
                 Spacer(Modifier.width(12.dp))
                 Box(
@@ -633,12 +704,45 @@ private fun Timeline(
         Box(
             Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White),
         )
+        // Zoom buttons, for when pinching isn't handy.
+        Row(Modifier.align(Alignment.TopEnd)) {
+            SmallZoomButton(Icons.Rounded.ZoomOut, "Zoom out") { zoomBy(0.5f) }
+            SmallZoomButton(Icons.Rounded.ZoomIn, "Zoom in") { zoomBy(2f) }
+        }
     }
 }
 
 @Composable
-private fun ClipBlock(clip: Clip, width: androidx.compose.ui.unit.Dp, selected: Boolean, onClick: () -> Unit) {
-    val frames = max(1, min(24, ceil(width.value / 48f).toInt()))
+private fun SmallZoomButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.padding(2.dp).size(26.dp).clip(CircleShape).background(Color(0xAA000000)).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(16.dp)) }
+}
+
+/** Timeline scale limits: a whole film on screen … about one thumbnail per frame. */
+private const val MIN_DP_PER_SECOND = 2f
+private const val MAX_DP_PER_SECOND = 1600f
+private val FRAME_WIDTH = 48.dp
+private const val MAX_TIMELINE_PX = 200_000f
+
+@Composable
+private fun ClipBlock(
+    clip: Clip,
+    width: androidx.compose.ui.unit.Dp,
+    selected: Boolean,
+    visibleFromPx: () -> Float,
+    viewportPx: Float,
+    onClick: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val framePx = with(density) { FRAME_WIDTH.toPx() }
+    val frames = max(1, ceil(width.value / FRAME_WIDTH.value).toInt())
+    // Which thumbnails are on screen (in whole frames, so scrolling within one doesn't redraw).
+    val firstVisible by remember(frames, framePx) {
+        derivedStateOf { (visibleFromPx() / framePx).toInt().coerceIn(0, frames - 1) }
+    }
+    val visibleCount = (viewportPx / framePx).toInt() + 2
     Box(
         Modifier
             .width(width)
@@ -651,11 +755,20 @@ private fun ClipBlock(clip: Clip, width: androidx.compose.ui.unit.Dp, selected: 
             )
             .clickable(onClick = onClick),
     ) {
-        Row(Modifier.fillMaxSize()) {
-            for (i in 0 until frames) {
-                val t = if (clip.isImage) null
-                else (clip.trimStartMs + clip.sourceSpanMs * (i + 0.5f) / frames).toLong() * 1000
-                VideoThumbnail(clip.uri, Modifier.weight(1f).fillMaxHeight(), timeUs = t)
+        // Only the frames on screen (plus one each side) are composed and decoded, so a long clip
+        // zoomed all the way in still scrolls smoothly. Each shows the exact frame at its time.
+        val last = (firstVisible + visibleCount).coerceAtMost(frames - 1)
+        val slot = width / frames
+        for (i in (firstVisible - 1).coerceAtLeast(0)..last) {
+            val t = if (clip.isImage) null
+            else (clip.trimStartMs + clip.sourceSpanMs * (i + 0.5f) / frames).toLong() * 1000
+            key(i) {
+                VideoThumbnail(
+                    clip.uri,
+                    Modifier.offset(x = slot * i).width(slot).fillMaxHeight(),
+                    timeUs = t,
+                    exact = true,
+                )
             }
         }
         Row(
@@ -716,8 +829,11 @@ private fun ToolButton(tool: Tool, active: Boolean, enabled: Boolean, onClick: (
 
 @Composable
 private fun ExportConfigDialog(project: Project, onDismiss: () -> Unit, onExport: (Int) -> Unit) {
-    var resolution by remember { mutableIntStateOf(1080) }
+    // The original's resolution (its short side) is the default, so nothing gets downscaled.
+    val original = remember(project) { project.originalShortSide() }
+    var resolution by remember { mutableIntStateOf(original) }
     val (w, h) = project.outputSize(resolution)
+    val quality = remember(project, resolution) { ExportQuality.forProject(project, resolution) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Export") },
@@ -725,8 +841,10 @@ private fun ExportConfigDialog(project: Project, onDismiss: () -> Unit, onExport
             Column {
                 Text("Resolution", style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for ((label, value) in listOf("480p" to 480, "720p" to 720, "1080p" to 1080, "2K" to 1440)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val options = listOf("Original (${original}p)" to original) +
+                        listOf("1080p" to 1080, "720p" to 720, "480p" to 480).filter { it.second < original }
+                    for ((label, value) in options) {
                         FilterChip(
                             selected = resolution == value,
                             onClick = { resolution = value },
@@ -736,7 +854,9 @@ private fun ExportConfigDialog(project: Project, onDismiss: () -> Unit, onExport
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "$w × $h · ${formatDuration(project.durationMs)} · H.264 MP4",
+                    "$w × $h · ${formatDuration(project.durationMs)} · ${quality.codecLabel} MP4 · " +
+                        "${"%.1f".format(quality.videoBitrate / 1e6)} Mbps · about " +
+                        com.eshwar.reelplay.ui.formatSize(quality.videoBitrate / 8L * project.durationMs / 1000),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(

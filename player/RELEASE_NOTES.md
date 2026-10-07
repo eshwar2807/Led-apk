@@ -1,2 +1,3 @@
-- Player top bar: A-B repeat, Repeat and Delete are now buttons next to ⋮. "A-B" lights up while you're setting it and shows a tick while it loops; the Repeat icon lights up when on (repeat one / all)
-- Rename videos from the player: tap the pencil next to the title. The file itself is renamed (Android asks for permission once), the extension is kept, and playback carries on
+- Editor exports keep the original quality: the original resolution is the default (no more downscaling to 1080p), the bitrate is at least the original's, and the original codec (HEVC/H.264) is kept. A plain trim is copied without re-encoding, so it's identical to the original
+- The export screen shows the resolution, codec, bitrate and roughly how big the file will be
+- See every frame while editing: pinch the timeline (or tap +/−) to zoom in until each frame has its own thumbnail, and use the new ◀ ▶ buttons beside Play to step one frame at a time

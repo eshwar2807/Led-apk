@@ -213,7 +213,9 @@ Open it with **New edit** in the library, **Edit** in a video's menu or in the p
 by sharing videos to ReelPlay from the gallery.
 
 - Multi-clip timeline of videos **and photos**, scrolled under a fixed playhead
-  (drag it to scrub; the preview follows).
+  (drag it to scrub; the preview follows). **Pinch** (or +/−) zooms from the whole project
+  down to a thumbnail per frame; only on-screen thumbnails are decoded, each at the exact
+  frame. **◀ ▶** beside Play step one frame (at the clip's frame rate and speed).
 - **Split** at the playhead, **Trim** (range slider), **Duplicate**, **Delete**, move
   clips left/right.
 - **Speed** 0.25×–4× per clip, **Volume** 0–200% per clip, mute original audio.
@@ -228,8 +230,12 @@ by sharing videos to ReelPlay from the gallery.
 - **Format**: Original, 9:16, 1:1, 16:9, 4:5, 4:3, 2.35:1 — clips are fitted and letterboxed.
 - Photo duration 0.5–15 s.
 - Undo / redo for every change.
-- **Export** to H.264 MP4 at 480p, 720p, 1080p or 2K, saved to `Movies/ReelPlay`,
-  then play or share it from the dialog.
+- **Export** at the original resolution by default (or 1080p/720p/480p if smaller), saved to
+  `Movies/ReelPlay`, then play or share it from the dialog. `ExportQuality` keeps quality:
+  the source's codec (HEVC/H.264, if the phone can encode it), and a VBR bitrate of the
+  source's scaled to the output pixels plus 15%, never below 0.15 bits/pixel/frame (2–120
+  Mbps). A single unedited clip skips the resize step and uses Transformer's trim
+  optimisation, so a trim is copied rather than re-encoded.
 
 ## Updates
 
