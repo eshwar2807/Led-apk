@@ -1,3 +1,1 @@
-- Editor exports keep the original quality: the original resolution is the default (no more downscaling to 1080p), the bitrate is at least the original's, and the original codec (HEVC/H.264) is kept. A plain trim is copied without re-encoding, so it's identical to the original
-- The export screen shows the resolution, codec, bitrate and roughly how big the file will be
-- See every frame while editing: pinch the timeline (or tap +/−) to zoom in until each frame has its own thumbnail, and use the new ◀ ▶ buttons beside Play to step one frame at a time
+- Clear guidance for YouTube links in "Find videos on a page": detects YouTube URLs and explains why dynamic client-side player scripts and separate encrypted DASH streams cannot be scraped directly, with a one-tap shortcut to open the video in YouTube or your browser
