@@ -110,6 +110,7 @@ private sealed interface ScanState {
     data object Scanning : ScanState
     data class Found(val videos: List<FoundVideo>) : ScanState
     data class Failed(val message: String) : ScanState
+    data class YouTubeNotice(val url: String) : ScanState
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -123,10 +124,17 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
 
     fun scan() {
         if (url.isBlank()) return
+        val normalized = PageVideos.normalize(url)
+        if (PageVideos.isYouTube(normalized)) {
+            state = ScanState.YouTubeNotice(normalized)
+            return
+        }
         state = ScanState.Scanning
         scope.launch {
             state = try {
                 ScanState.Found(PageVideos.scan(url))
+            } catch (e: YouTubeUnsupportedException) {
+                ScanState.YouTubeNotice(e.url)
             } catch (e: Exception) {
                 ScanState.Failed(e.message ?: "Couldn't load that page")
             }
@@ -168,6 +176,13 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
                 )
                 ScanState.Scanning -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(16.dp))
                 is ScanState.Failed -> Hint(s.message, error = true)
+                is ScanState.YouTubeNotice -> YouTubeNoticeCard(
+                    url = s.url,
+                    onOpen = {
+                        val intent = Intent(Intent.ACTION_VIEW, s.url.toUri())
+                        context.startActivitySafely(intent)
+                    },
+                )
                 is ScanState.Found -> if (s.videos.isEmpty()) {
                     Hint(
                         "No videos found on that page. Some sites load their player with scripts, " +
@@ -212,6 +227,52 @@ private fun Hint(text: String, error: Boolean = false) {
         color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(16.dp),
     )
+}
+
+@Composable
+private fun YouTubeNoticeCard(url: String, onOpen: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Rounded.Movie,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "YouTube link detected",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "YouTube videos cannot be downloaded through standard webpage scraping. " +
+                    "YouTube delivers video dynamically through client-side player scripts, encrypted signatures, " +
+                    "and separate adaptive DASH audio/video streams rather than direct static files.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "To watch this video, you can open it in the YouTube app or your browser. " +
+                    "For downloading YouTube videos on Android, use a dedicated downloader tool such as NewPipe or Seal.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+            FilledTonalButton(onClick = onOpen) {
+                Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Open in YouTube / Browser")
+            }
+        }
+    }
 }
 
 /** A stream download waiting for the user to pick a quality. */

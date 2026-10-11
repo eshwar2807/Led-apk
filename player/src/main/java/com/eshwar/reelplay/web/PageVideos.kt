@@ -36,12 +36,23 @@ data class FoundVideo(
     val downloadable: Boolean get() = kind != Kind.STREAM
 }
 
+/** Thrown when a scanned link belongs to YouTube, which cannot be downloaded via page scraping. */
+class YouTubeUnsupportedException(val url: String) :
+    IOException("YouTube videos cannot be downloaded through standard webpage scraping.")
+
 /**
  * Finds the videos a web page links to or embeds: direct video files, `<video>`/`<source>`
  * sources, HLS/DASH playlists, `.torrent` files and magnet links. Only what's in the page's
  * HTML; sites that build their player in script won't list anything.
  */
 object PageVideos {
+
+    /** Whether [url] points to YouTube (watch, shorts, youtu.be, etc.). */
+    fun isYouTube(url: String): Boolean {
+        val raw = normalize(url)
+        val host = runCatching { URI(raw).host?.lowercase() }.getOrNull().orEmpty()
+        return host == "youtube.com" || host.endsWith(".youtube.com") || host == "youtu.be"
+    }
 
     private val VIDEO_EXT = setOf("mp4", "mkv", "webm", "mov", "avi", "m4v", "3gp", "ts", "flv", "wmv", "mpg", "mpeg")
     private val STREAM_EXT = setOf("m3u8", "mpd")
@@ -140,6 +151,7 @@ object PageVideos {
      */
     suspend fun scan(pageUrl: String): List<FoundVideo> = withContext(Dispatchers.IO) {
         val url = normalize(pageUrl)
+        if (isYouTube(url)) throw YouTubeUnsupportedException(url)
         classify(url, url)?.let { return@withContext listOf(it) }
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 15_000
@@ -152,6 +164,7 @@ object PageVideos {
             if (code !in 200..299) throw IOException("The page returned HTTP $code")
             val type = conn.contentType.orEmpty().lowercase()
             val finalUrl = conn.url.toString()
+            if (isYouTube(finalUrl)) throw YouTubeUnsupportedException(finalUrl)
             if (type.startsWith("video/")) {
                 val name = finalUrl.substringAfterLast('/').substringBefore('?').ifEmpty { "Video" }
                 return@withContext listOf(FoundVideo(finalUrl, name, FoundVideo.Kind.FILE))

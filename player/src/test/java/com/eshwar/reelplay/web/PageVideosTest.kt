@@ -69,6 +69,16 @@ class PageVideosTest {
     }
 
     @Test
+    fun detectsYouTubeUrls() {
+        org.junit.Assert.assertTrue(PageVideos.isYouTube("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        org.junit.Assert.assertTrue(PageVideos.isYouTube("https://youtu.be/dQw4w9WgXcQ"))
+        org.junit.Assert.assertTrue(PageVideos.isYouTube("https://m.youtube.com/shorts/12345"))
+        org.junit.Assert.assertTrue(PageVideos.isYouTube("youtube.com/watch?v=abc"))
+        org.junit.Assert.assertFalse(PageVideos.isYouTube("https://example.com/video.mp4"))
+        org.junit.Assert.assertFalse(PageVideos.isYouTube("https://vimeo.com/12345"))
+    }
+
+    @Test
     fun normalizesTypedLinks_andPullsLinksOutOfSharedText() {
         assertEquals("https://example.com/a", PageVideos.normalize(" example.com/a "))
         assertEquals("http://x.org", PageVideos.normalize("http://x.org"))
