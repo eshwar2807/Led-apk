@@ -28,6 +28,8 @@ import com.eshwar.reelplay.ui.formatDuration
 import com.eshwar.reelplay.ui.formatSize
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -111,6 +113,7 @@ private sealed interface ScanState {
     data class Found(val videos: List<FoundVideo>) : ScanState
     data class Failed(val message: String) : ScanState
     data class YouTubeNotice(val url: String) : ScanState
+    data class YtFound(val details: YtDlpDownloader.YtDetails) : ScanState
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,12 +124,21 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
     var url by rememberSaveable { mutableStateOf(initialUrl) }
     var state by remember { mutableStateOf<ScanState>(ScanState.Idle) }
     var choosing by remember { mutableStateOf<QualityChoice?>(null) }
+    var choosingYt by remember { mutableStateOf<YtDlpDownloader.YtDetails?>(null) }
 
     fun scan() {
         if (url.isBlank()) return
         val normalized = PageVideos.normalize(url)
         if (PageVideos.isYouTube(normalized)) {
-            state = ScanState.YouTubeNotice(normalized)
+            state = ScanState.Scanning
+            scope.launch {
+                state = try {
+                    val details = YtDlpDownloader.fetchDetails(context, normalized)
+                    ScanState.YtFound(details)
+                } catch (e: Exception) {
+                    ScanState.YouTubeNotice(normalized)
+                }
+            }
             return
         }
         state = ScanState.Scanning
@@ -134,7 +146,12 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
             state = try {
                 ScanState.Found(PageVideos.scan(url))
             } catch (e: YouTubeUnsupportedException) {
-                ScanState.YouTubeNotice(e.url)
+                try {
+                    val details = YtDlpDownloader.fetchDetails(context, e.url)
+                    ScanState.YtFound(details)
+                } catch (_: Exception) {
+                    ScanState.YouTubeNotice(e.url)
+                }
             } catch (e: Exception) {
                 ScanState.Failed(e.message ?: "Couldn't load that page")
             }
@@ -183,6 +200,23 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
                         context.startActivitySafely(intent)
                     },
                 )
+                is ScanState.YtFound -> {
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        Text(
+                            "Video details (yt-dlp)",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                        YtFoundTile(
+                            details = s.details,
+                            onDownload = { choosingYt = s.details },
+                            onOpen = {
+                                val intent = Intent(Intent.ACTION_VIEW, s.details.url.toUri())
+                                context.startActivitySafely(intent)
+                            },
+                        )
+                    }
+                }
                 is ScanState.Found -> if (s.videos.isEmpty()) {
                     Hint(
                         "No videos found on that page. Some sites load their player with scripts, " +
@@ -217,6 +251,21 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
             choosing = null
             startStream(context, c.video, c.pageUrl, variant.url, variant.audioUrl, variant.label)
         }
+    }
+    choosingYt?.let { details ->
+        YtQualityDialog(
+            details = details,
+            onDismiss = { choosingYt = null },
+            onPick = { quality ->
+                choosingYt = null
+                YtDlpDownloader.startDownload(context, details.url, details.title, quality)
+                Toast.makeText(
+                    context,
+                    "Downloading ${details.title} (${quality.label}) to Download/ReelPlay",
+                    Toast.LENGTH_LONG,
+                ).show()
+            },
+        )
     }
 }
 
@@ -270,6 +319,98 @@ private fun YouTubeNoticeCard(url: String, onOpen: () -> Unit) {
                 Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("Open in YouTube / Browser")
+            }
+        }
+    }
+}
+
+@Composable
+private fun YtQualityDialog(
+    details: YtDlpDownloader.YtDetails,
+    onDismiss: () -> Unit,
+    onPick: (YtDlpDownloader.YtQuality) -> Unit,
+) {
+    var picked by remember { mutableStateOf(details.qualities.first()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Download quality (yt-dlp)") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(details.title, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                details.qualities.forEach { q ->
+                    Row(Modifier.fillMaxWidth().clickable { picked = q }, verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = q == picked, onClick = { picked = q })
+                        Text(q.label)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onPick(picked) }) { Text("Download") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun YtFoundTile(details: YtDlpDownloader.YtDetails, onDownload: () -> Unit, onOpen: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Row(Modifier.fillMaxWidth().padding(10.dp)) {
+            Box(
+                Modifier.width(144.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                val thumb by produceState<Bitmap?>(null, details.thumbnailUrl) {
+                    value = details.thumbnailUrl?.let { u ->
+                        withContext(Dispatchers.IO) {
+                            try {
+                                val conn = java.net.URL(u).openConnection() as java.net.HttpURLConnection
+                                conn.connectTimeout = 8_000
+                                conn.inputStream.use { BitmapFactory.decodeStream(it) }
+                            } catch (_: Exception) { null }
+                        }
+                    }
+                }
+                if (thumb != null) {
+                    Image(thumb!!.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Icon(Icons.Rounded.Movie, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (details.durationSeconds > 0) {
+                    Text(
+                        formatDuration(details.durationSeconds * 1000),
+                        style = MaterialTheme.typography.labelSmall, color = Color.White,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)
+                            .background(Color(0xAA000000), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(details.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                details.uploader?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
+                val best = details.qualities.firstOrNull { !it.isAudioOnly }?.label ?: "Video"
+                Text(
+                    "YouTube · $best · ${details.qualities.size} options (yt-dlp)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = onDownload, contentPadding = PaddingValues(horizontal = 12.dp)) {
+                        Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Download")
+                    }
+                    OutlinedButton(onClick = onOpen, contentPadding = PaddingValues(horizontal = 12.dp)) {
+                        Icon(Icons.Rounded.PlayArrow, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Open")
+                    }
+                }
             }
         }
     }

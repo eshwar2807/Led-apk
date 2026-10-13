@@ -20,8 +20,8 @@ android {
         applicationId = "com.eshwar.reelplay"
         minSdk = 26
         targetSdk = 37
-        versionCode = 22
-        versionName = "2.6"
+        versionCode = 23
+        versionName = "2.7"
         buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
     }
 
@@ -108,6 +108,10 @@ dependencies {
     implementation(libs.libtorrent4j)
     implementation(libs.libtorrent4j.android.arm64)
     implementation(libs.libtorrent4j.android.arm)
+
+    // yt-dlp & FFmpeg engine (Seal's core downloader) for YouTube 4K, 1080p, audio extraction and downloads.
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

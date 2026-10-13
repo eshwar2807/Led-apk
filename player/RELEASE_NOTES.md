@@ -1,1 +1,2 @@
-- Clear guidance for YouTube links in "Find videos on a page": detects YouTube URLs and explains why dynamic client-side player scripts and separate encrypted DASH streams cannot be scraped directly, with a one-tap shortcut to open the video in YouTube or your browser
+- In-app YouTube downloader powered by yt-dlp & FFmpeg: paste or share YouTube and web video links into "Find videos on a page" to download videos in 4K (2160p), 2K (1440p), 1080p, 720p, or extract audio (MP3) directly into Download/ReelPlay
+- High-definition streams are automatically remuxed with full audio on-device
