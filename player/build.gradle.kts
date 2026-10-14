@@ -110,8 +110,8 @@ dependencies {
     implementation(libs.libtorrent4j.android.arm)
 
     // yt-dlp & FFmpeg engine (Seal's core downloader) for YouTube 4K, 1080p, audio extraction and downloads.
-    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
-    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.17.3")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.3")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
