@@ -1,2 +1,3 @@
 - In-app YouTube downloader powered by yt-dlp & FFmpeg: paste or share YouTube and web video links into "Find videos on a page" to download videos in 4K (2160p), 2K (1440p), 1080p, 720p, or extract audio (MP3) directly into Download/ReelPlay.
 - High-definition video streams are automatically remuxed with full audio on-device.
+- Fast background extraction and thumbnail loading for YouTube links.
