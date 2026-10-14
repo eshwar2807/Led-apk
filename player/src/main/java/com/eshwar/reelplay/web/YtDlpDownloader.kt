@@ -26,14 +26,22 @@ object YtDlpDownloader {
         if (initialized) return
         synchronized(this) {
             if (initialized) return
+            var ytdlReady = false
             try {
                 YoutubeDL.getInstance().init(context.applicationContext)
-                FFmpeg.getInstance().init(context.applicationContext)
-                initialized = true
-                Log.d(TAG, "YoutubeDL and FFmpeg initialized successfully")
+                ytdlReady = true
+                Log.d(TAG, "YoutubeDL initialized successfully")
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to initialize YoutubeDL / FFmpeg: ${e.message}")
+                Log.e(TAG, "Failed to initialize YoutubeDL: ${e.message}", e)
+                throw IllegalStateException("yt-dlp engine initialization failed: ${e.message}", e)
             }
+            try {
+                FFmpeg.getInstance().init(context.applicationContext)
+                Log.d(TAG, "FFmpeg initialized successfully")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to initialize FFmpeg: ${e.message}", e)
+            }
+            initialized = ytdlReady
         }
     }
 
@@ -61,12 +69,20 @@ object YtDlpDownloader {
         init(context)
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
+            addOption("--no-check-certificates")
+            addOption("--geo-bypass")
         }
         val info: VideoInfo = try {
             YoutubeDL.getInstance().getInfo(request)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch video info: ${e.message}", e)
-            throw e
+            Log.w(TAG, "Initial getInfo failed: ${e.message}. Attempting yt-dlp binary update...")
+            try {
+                YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext)
+                YoutubeDL.getInstance().getInfo(request)
+            } catch (_: Exception) {
+                Log.e(TAG, "Failed to fetch video info: ${e.message}", e)
+                throw e
+            }
         }
 
         val title = info.title ?: "YouTube Video"
@@ -135,6 +151,8 @@ object YtDlpDownloader {
         val request = YoutubeDLRequest(url).apply {
             addOption("-o", "${downloadDir.absolutePath}/%(title)s.%(ext)s")
             addOption("-f", quality.formatSpec)
+            addOption("--no-check-certificates")
+            addOption("--geo-bypass")
             if (quality.isAudioOnly) {
                 addOption("-x")
                 addOption("--audio-format", "mp3")

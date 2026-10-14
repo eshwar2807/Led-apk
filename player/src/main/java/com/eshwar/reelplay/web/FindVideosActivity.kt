@@ -138,7 +138,7 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
                     val details = YtDlpDownloader.fetchDetails(context, normalized)
                     ScanState.YtFound(details)
                 } catch (e: Exception) {
-                    ScanState.YouTubeNotice(normalized)
+                    ScanState.Failed("YouTube: ${e.message ?: e.javaClass.simpleName}")
                 }
             }
             return
@@ -151,8 +151,8 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
                 try {
                     val details = YtDlpDownloader.fetchDetails(context, e.url)
                     ScanState.YtFound(details)
-                } catch (_: Exception) {
-                    ScanState.YouTubeNotice(e.url)
+                } catch (err: Exception) {
+                    ScanState.Failed("YouTube: ${err.message ?: err.javaClass.simpleName}")
                 }
             } catch (e: Exception) {
                 ScanState.Failed(e.message ?: "Couldn't load that page")
