@@ -1,3 +1,3 @@
-- Fixed YouTube extractor fallback: now loads video details and qualities reliably with automatic yt-dlp update.
-- Download YouTube and web videos in 4K (2160p), 2K (1440p), 1080p, 720p, or extract audio (MP3) directly into Download/ReelPlay.
-- High-definition video streams are automatically remuxed with full audio on-device.
+- Live YouTube download progress: see real-time progress bar, percentage, speed, and Play button right on the "Find videos" screen, in the Downloader tab, and in system notifications.
+- Fixed Android Scoped Storage saving: downloads now stage in app storage and save cleanly to Download/ReelPlay via MediaStore.
+- Download YouTube and web videos in 4K (2160p), 2K (1440p), 1080p, 720p, or extract audio (MP3).

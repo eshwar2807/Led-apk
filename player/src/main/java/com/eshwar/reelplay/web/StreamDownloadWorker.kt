@@ -17,7 +17,7 @@ import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.io.IOException
 
-/** Downloads one [StreamDownload]: segments, then the MP4, then into Download/ReelPlay. */
+/** Downloads one [StreamDownload]: segments or yt-dlp streams, then the MP4/MP3, then into Download/ReelPlay. */
 class StreamDownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -33,12 +33,15 @@ class StreamDownloadWorker(context: Context, params: WorkerParameters) : Corouti
             // Not allowed to show a foreground service right now; carry on as plain work.
         }
         val dir = StreamDownloads.workDir(ctx, id).apply { mkdirs() }
+        if (d.isYtDlp) {
+            return doYtDlpWork(ctx, id, d, dir, notificationId)
+        }
         try {
             val fetcher = HttpFetcher(d.pageUrl)
             val video = Hls.parseMedia(fetcher.text(d.playlistUrl), d.playlistUrl)
             val audio = d.audioUrl?.let { Hls.parseMedia(fetcher.text(it), it) }
             val videoPieces = video.segments.size + (if (video.initUrl != null) 1 else 0)
-            val audioPieces = audio?.let { it.segments.size + (if (it.initUrl != null) 1 else 0) } ?: 0
+            val audioPieces = audio?.let { it.segments.size + (if (audio.initUrl != null) 1 else 0) } ?: 0
             StreamDownloads.set(ctx, id) { it.copy(state = StreamDownload.State.DOWNLOADING, totalPieces = videoPieces + audioPieces, error = null) }
 
             val downloader = HlsDownloader(fetcher)
@@ -100,6 +103,86 @@ class StreamDownloadWorker(context: Context, params: WorkerParameters) : Corouti
                 return Result.retry()
             }
             fail(ctx, id, notificationId, d.title, e.message ?: "Download failed")
+            return Result.failure()
+        }
+    }
+
+    private fun doYtDlpWork(
+        ctx: Context,
+        id: String,
+        d: StreamDownload,
+        dir: File,
+        notificationId: Int,
+    ): Result {
+        try {
+            StreamDownloads.set(ctx, id) {
+                it.copy(state = StreamDownload.State.DOWNLOADING, donePieces = 0, totalPieces = 100, error = null)
+            }
+            var lastNotify = 0L
+            val resultFile = YtDlpDownloader.downloadToDir(
+                context = ctx,
+                processId = id,
+                url = d.playlistUrl,
+                formatSpec = d.audioUrl ?: "bestvideo+bestaudio/best",
+                isAudioOnly = d.isYtDlpAudio,
+                outputDir = dir,
+            ) { progressPct, _, isMerging ->
+                val done = progressPct.toInt().coerceIn(0, 100)
+                val currentBytes = dir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
+                val newState = if (isMerging) StreamDownload.State.MERGING else StreamDownload.State.DOWNLOADING
+                StreamDownloads.set(ctx, id, force = false) {
+                    it.copy(
+                        state = newState,
+                        donePieces = if (done > 0) done else it.donePieces,
+                        totalPieces = 100,
+                        bytes = if (currentBytes > 0) currentBytes else it.bytes,
+                    )
+                }
+                val now = System.currentTimeMillis()
+                if (now - lastNotify > 1_000) {
+                    lastNotify = now
+                    notify(ctx, notificationId, d.title, done to 100)
+                }
+            }
+
+            val finalBytes = resultFile.length()
+            StreamDownloads.set(ctx, id) {
+                it.copy(state = StreamDownload.State.SAVING, donePieces = 100, totalPieces = 100, bytes = finalBytes)
+            }
+            val ext = resultFile.extension.lowercase().ifEmpty { if (d.isYtDlpAudio) "mp3" else "mp4" }
+            val mime = when (ext) {
+                "mp3" -> "audio/mpeg"
+                "m4a", "aac" -> "audio/mp4"
+                "opus", "ogg" -> "audio/ogg"
+                "mkv" -> "video/x-matroska"
+                "webm" -> "video/webm"
+                else -> "video/mp4"
+            }
+            val baseTitle = d.title.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "_").ifBlank { "video" }.take(100)
+            val qualShort = d.quality.substringBefore(' ').ifBlank { "YT" }
+            val name = "$baseTitle ($qualShort).$ext"
+            val (uri, location) = DownloadSaver.saveOne(ctx, resultFile, name, mime)
+            if (!location.startsWith("ReelPlay")) {
+                dir.deleteRecursively()
+            } else {
+                dir.listFiles()?.filter { it != resultFile }?.forEach { it.delete() }
+            }
+            StreamDownloads.set(ctx, id) {
+                it.copy(
+                    state = StreamDownload.State.DONE,
+                    savedUri = uri.toString(),
+                    location = location,
+                    donePieces = 100,
+                    totalPieces = 100,
+                    bytes = finalBytes,
+                )
+            }
+            notifyDone(ctx, notificationId, d.title, "Saved to $location")
+            return Result.success()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            fail(ctx, id, notificationId, d.title, e.message ?: "YouTube download failed")
             return Result.failure()
         }
     }

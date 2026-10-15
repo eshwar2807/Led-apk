@@ -346,7 +346,8 @@ private fun StreamDownloadCard(
                         val eta = if (rate > 0 && estimate != null) {
                             " · ${formatDuration((estimate - d.bytes).coerceAtLeast(0) * 1000 / rate)} left"
                         } else ""
-                        "${((p ?: 0f) * 100).toInt()}% · ↓ ${formatSize(rate)}/s · part ${d.donePieces} of ${d.totalPieces}$eta"
+                        val parts = if (d.isYtDlp) "" else " · part ${d.donePieces} of ${d.totalPieces}"
+                        "${((p ?: 0f) * 100).toInt()}% · ↓ ${formatSize(rate)}/s$parts$eta"
                     }
                     StreamDownload.State.QUEUED -> d.error ?: "Waiting for a connection"
                     else -> null

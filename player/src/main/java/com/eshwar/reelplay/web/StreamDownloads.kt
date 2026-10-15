@@ -15,7 +15,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-/** A video stream (HLS) being saved as one MP4. */
+/** A video stream (HLS or YouTube/yt-dlp) being saved as one file. */
 data class StreamDownload(
     val id: String,
     val title: String,
@@ -37,8 +37,11 @@ data class StreamDownload(
         DONE("Done"), FAILED("Failed"), CANCELLED("Cancelled"),
     }
 
+    val isYtDlp: Boolean get() = pageUrl?.startsWith("ytdlp:") == true
+    val isYtDlpAudio: Boolean get() = pageUrl == "ytdlp:audio"
+
     val active: Boolean get() = state in setOf(State.QUEUED, State.DOWNLOADING, State.MERGING, State.SAVING)
-    val progress: Float? get() = if (totalPieces > 0) donePieces.toFloat() / totalPieces else null
+    val progress: Float? get() = if (totalPieces > 0) (donePieces.toFloat() / totalPieces).coerceIn(0f, 1f) else null
 
     /** Size estimate from the average piece so far. */
     val estimatedBytes: Long? get() = if (donePieces >= 3 && totalPieces > 0) bytes * totalPieces / donePieces else null
@@ -99,6 +102,25 @@ object StreamDownloads {
         update(context, force = true) { listOf(d) + it }
         enqueue(context, d.id)
         return d.id
+    }
+
+    fun startYtDlp(
+        context: Context,
+        title: String,
+        videoUrl: String,
+        formatSpec: String,
+        qualityLabel: String,
+        isAudioOnly: Boolean,
+    ): String {
+        val kindTag = if (isAudioOnly) "ytdlp:audio" else "ytdlp:video"
+        return start(
+            context = context,
+            title = title,
+            pageUrl = kindTag,
+            playlistUrl = videoUrl,
+            audioUrl = formatSpec,
+            quality = qualityLabel,
+        )
     }
 
     fun retry(context: Context, id: String) {

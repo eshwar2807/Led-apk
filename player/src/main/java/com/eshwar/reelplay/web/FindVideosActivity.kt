@@ -1,31 +1,5 @@
 package com.eshwar.reelplay.web
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.Movie
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.produceState
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
-import com.eshwar.reelplay.ui.formatDuration
-import com.eshwar.reelplay.ui.formatSize
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -35,24 +9,40 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -61,28 +51,40 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.eshwar.reelplay.player.PlayerActivity
+import com.eshwar.reelplay.torrent.DownloadsActivity
 import com.eshwar.reelplay.torrent.TorrentActivity
 import com.eshwar.reelplay.ui.ReelPlayTheme
+import com.eshwar.reelplay.ui.formatDuration
+import com.eshwar.reelplay.ui.formatSize
 import com.eshwar.reelplay.ui.startActivitySafely
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -127,6 +129,11 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
     var state by remember { mutableStateOf<ScanState>(ScanState.Idle) }
     var choosing by remember { mutableStateOf<QualityChoice?>(null) }
     var choosingYt by remember { mutableStateOf<YtDlpDownloader.YtDetails?>(null) }
+    val streams by StreamDownloads.items.collectAsState()
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { StreamDownloads.load(context) }
+    }
 
     fun scan() {
         if (url.isBlank()) return
@@ -203,7 +210,10 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
                     },
                 )
                 is ScanState.YtFound -> {
-                    Column(Modifier.padding(horizontal = 16.dp)) {
+                    val matchingDownloads = streams.filter { it.playlistUrl == s.details.url }
+                    Column(
+                        Modifier.padding(horizontal = 16.dp).verticalScroll(rememberScrollState()),
+                    ) {
                         Text(
                             "Video details (yt-dlp)",
                             style = MaterialTheme.typography.titleSmall,
@@ -217,6 +227,23 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
                                 context.startActivitySafely(intent)
                             },
                         )
+                        matchingDownloads.forEach { d ->
+                            Spacer(Modifier.height(12.dp))
+                            YtDownloadStatusCard(
+                                d = d,
+                                onPlay = {
+                                    d.savedUri?.let {
+                                        context.startActivitySafely(
+                                            PlayerActivity.intent(context, listOf(it.toUri()), listOf(d.title), 0),
+                                        )
+                                    }
+                                },
+                                onCancel = { scope.launch(Dispatchers.IO) { StreamDownloads.cancel(context, d.id) } },
+                                onRetry = { StreamDownloads.retry(context, d.id) },
+                                onOpenDownloader = { context.startActivitySafely(DownloadsActivity.intent(context)) },
+                            )
+                        }
+                        Spacer(Modifier.height(24.dp))
                     }
                 }
                 is ScanState.Found -> if (s.videos.isEmpty()) {
@@ -260,14 +287,85 @@ private fun FindVideosScreen(initialUrl: String, onClose: () -> Unit) {
             onDismiss = { choosingYt = null },
             onPick = { quality ->
                 choosingYt = null
-                YtDlpDownloader.startDownload(context, details.url, details.title, quality)
+                StreamDownloads.startYtDlp(
+                    context = context,
+                    title = details.title,
+                    videoUrl = details.url,
+                    formatSpec = quality.formatSpec,
+                    qualityLabel = quality.label,
+                    isAudioOnly = quality.isAudioOnly,
+                )
                 Toast.makeText(
                     context,
-                    "Downloading ${details.title} (${quality.label}) to Download/ReelPlay",
+                    "Downloading ${quality.label}. Progress shown below & in Downloader tab",
                     Toast.LENGTH_LONG,
                 ).show()
             },
         )
+    }
+}
+
+@Composable
+private fun YtDownloadStatusCard(
+    d: StreamDownload,
+    onPlay: () -> Unit,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
+    onOpenDownloader: () -> Unit,
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            val pct = ((d.progress ?: 0f) * 100).toInt()
+            val statusText = when (d.state) {
+                StreamDownload.State.DOWNLOADING ->
+                    if (pct > 0) "Downloading · $pct% · ${d.quality}" else "Downloading · ${d.quality}"
+                else -> "${d.state.label} · ${d.quality}"
+            }
+            Text(
+                statusText,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (d.state == StreamDownload.State.FAILED) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurface,
+            )
+            if (d.bytes > 0) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    formatSize(d.bytes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (d.active) {
+                Spacer(Modifier.height(8.dp))
+                val p = d.progress
+                if (p == null || d.state != StreamDownload.State.DOWNLOADING || d.donePieces <= 0) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+            if (d.state == StreamDownload.State.FAILED) {
+                d.error?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            if (d.state == StreamDownload.State.DONE) {
+                d.location?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Saved to $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onOpenDownloader) { Text("Downloader tab") }
+                when {
+                    d.active -> TextButton(onClick = onCancel) { Text("Cancel") }
+                    d.state == StreamDownload.State.DONE -> TextButton(onClick = onPlay) { Text("Play") }
+                    else -> TextButton(onClick = onRetry) { Text("Retry") }
+                }
+            }
+        }
     }
 }
 
@@ -303,17 +401,8 @@ private fun YouTubeNoticeCard(url: String, onOpen: () -> Unit) {
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "YouTube videos cannot be downloaded through standard webpage scraping. " +
-                    "YouTube delivers video dynamically through client-side player scripts, encrypted signatures, " +
-                    "and separate adaptive DASH audio/video streams rather than direct static files.",
+                "Could not extract video details from this link. Please check your connection or open the video in your browser.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "To watch this video, you can open it in the YouTube app or your browser. " +
-                    "For downloading YouTube videos on Android, use a dedicated downloader tool such as NewPipe or Seal.",
-                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))

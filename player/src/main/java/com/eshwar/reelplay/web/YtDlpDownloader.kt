@@ -1,8 +1,6 @@
 package com.eshwar.reelplay.web
 
 import android.content.Context
-import android.media.MediaScannerConnection
-import android.os.Environment
 import android.util.Log
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
@@ -11,6 +9,7 @@ import com.yausername.youtubedl_android.mapper.VideoInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -95,23 +94,23 @@ object YtDlpDownloader {
 
         // 4K (2160p)
         if (availableHeights.any { it >= 2160 }) {
-            qualities.add(YtQuality("2160", "4K (2160p)", "bestvideo[height<=2160]+bestaudio/best"))
+            qualities.add(YtQuality("2160", "4K (2160p)", "bestvideo[height<=2160]+bestaudio/best[height<=2160]/best"))
         }
         // 2K / 1440p
         if (availableHeights.any { it in 1440..2159 }) {
-            qualities.add(YtQuality("1440", "2K (1440p)", "bestvideo[height<=1440]+bestaudio/best"))
+            qualities.add(YtQuality("1440", "2K (1440p)", "bestvideo[height<=1440]+bestaudio/best[height<=1440]/best"))
         }
         // 1080p Full HD
         if (availableHeights.any { it in 1080..1439 } || availableHeights.isEmpty()) {
-            qualities.add(YtQuality("1080", "1080p (Full HD)", "bestvideo[height<=1080]+bestaudio/best"))
+            qualities.add(YtQuality("1080", "1080p (Full HD)", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"))
         }
         // 720p HD
         if (availableHeights.any { it in 720..1079 } || availableHeights.isEmpty()) {
-            qualities.add(YtQuality("720", "720p (HD)", "bestvideo[height<=720]+bestaudio/best"))
+            qualities.add(YtQuality("720", "720p (HD)", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best"))
         }
         // 480p SD
         if (availableHeights.any { it in 360..719 }) {
-            qualities.add(YtQuality("480", "480p", "bestvideo[height<=480]+bestaudio/best"))
+            qualities.add(YtQuality("480", "480p", "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]/best"))
         }
 
         // Always ensure at least best quality option exists
@@ -120,7 +119,7 @@ object YtDlpDownloader {
         }
 
         // Audio extraction option (MP3)
-        qualities.add(YtQuality("audio", "Audio only (MP3)", "bestaudio", isAudioOnly = true))
+        qualities.add(YtQuality("audio", "Audio only (MP3)", "bestaudio/best", isAudioOnly = true))
 
         YtDetails(
             id = info.id ?: UUID.randomUUID().toString(),
@@ -134,48 +133,68 @@ object YtDlpDownloader {
     }
 
     /**
-     * Starts downloading the video to Download/ReelPlay.
+     * Downloads and merges the video or audio stream into [outputDir] (app-private external storage)
+     * so Android Scoped Storage never blocks native yt-dlp/FFmpeg processes, then returns the
+     * finished [File] ready for [com.eshwar.reelplay.torrent.DownloadSaver.saveOne].
      */
-    fun startDownload(
+    fun downloadToDir(
         context: Context,
+        processId: String,
         url: String,
-        title: String,
-        quality: YtQuality,
-        onProgress: ((Float, Long) -> Unit)? = null,
-    ): String {
+        formatSpec: String,
+        isAudioOnly: Boolean,
+        outputDir: File,
+        onProgress: (progressPercent: Float, etaSeconds: Long, isMerging: Boolean) -> Unit,
+    ): File {
         init(context)
-        val processId = UUID.randomUUID().toString()
-        val downloadDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "ReelPlay")
-        if (!downloadDir.exists()) downloadDir.mkdirs()
+        if (!outputDir.exists()) outputDir.mkdirs()
+        outputDir.listFiles()?.forEach { it.delete() }
 
-        val request = YoutubeDLRequest(url).apply {
-            addOption("-o", "${downloadDir.absolutePath}/%(title)s.%(ext)s")
-            addOption("-f", quality.formatSpec)
-            addOption("--no-check-certificates")
-            addOption("--geo-bypass")
-            if (quality.isAudioOnly) {
-                addOption("-x")
-                addOption("--audio-format", "mp3")
-            } else {
-                addOption("--merge-output-format", "mp4")
-            }
-        }
-
-        kotlin.concurrent.thread(name = "ytdl-$processId") {
-            try {
-                YoutubeDL.getInstance().execute(request, processId) { progress, etaInSeconds, _ ->
-                    onProgress?.invoke(progress, etaInSeconds)
+        fun buildRequest(fmt: String, mergeFormat: String?, extractMp3: Boolean): YoutubeDLRequest {
+            return YoutubeDLRequest(url).apply {
+                addOption("--no-playlist")
+                addOption("--no-check-certificates")
+                addOption("--geo-bypass")
+                addOption("--newline")
+                addOption("-o", "${outputDir.absolutePath}/download.%(ext)s")
+                addOption("-f", fmt)
+                if (extractMp3) {
+                    addOption("-x")
+                    addOption("--audio-format", "mp3")
+                } else if (mergeFormat != null) {
+                    addOption("--merge-output-format", mergeFormat)
                 }
-                MediaScannerConnection.scanFile(
-                    context.applicationContext,
-                    arrayOf(downloadDir.absolutePath),
-                    null,
-                    null,
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Download execution failed for $title", e)
             }
         }
-        return processId
+
+        val primaryRequest = if (isAudioOnly) {
+            buildRequest(formatSpec, null, extractMp3 = true)
+        } else {
+            buildRequest(formatSpec, "mp4/mkv", extractMp3 = false)
+        }
+
+        try {
+            YoutubeDL.getInstance().execute(primaryRequest, processId) { progress, etaInSeconds, line ->
+                val merging = line.contains("[Merger]") || line.contains("[ExtractAudio]") || line.contains("Merging")
+                onProgress(progress, etaInSeconds, merging)
+            }
+        } catch (firstErr: Exception) {
+            Log.w(TAG, "Primary download failed (${firstErr.message}); retrying with fallback format...")
+            outputDir.listFiles()?.forEach { it.delete() }
+            val fallbackRequest = if (isAudioOnly) {
+                buildRequest("bestaudio[ext=m4a]/bestaudio/best", null, extractMp3 = false)
+            } else {
+                buildRequest("best[ext=mp4]/best", null, extractMp3 = false)
+            }
+            YoutubeDL.getInstance().execute(fallbackRequest, "$processId-fb") { progress, etaInSeconds, line ->
+                val merging = line.contains("[Merger]") || line.contains("[ExtractAudio]")
+                onProgress(progress, etaInSeconds, merging)
+            }
+        }
+
+        return outputDir.listFiles()
+            ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") && it.length() > 0 }
+            ?.maxByOrNull { it.length() }
+            ?: throw IOException("Download finished, but no output file was created")
     }
 }
