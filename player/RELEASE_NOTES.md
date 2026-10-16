@@ -1,3 +1,2 @@
-- Live YouTube download progress: see real-time progress bar, percentage, speed, and Play button right on the "Find videos" screen, in the Downloader tab, and in system notifications.
-- Fixed Android Scoped Storage saving: downloads now stage in app storage and save cleanly to Download/ReelPlay via MediaStore.
-- Download YouTube and web videos in 4K (2160p), 2K (1440p), 1080p, 720p, or extract audio (MP3).
+- New: People. Media Player ⋮ → People groups your photos and videos by the faces in them, so you can see everything someone is in, filter to just photos or just videos, and give people names. It's off until you turn it on, and it all happens on your phone: nothing is uploaded. Turning it off in Settings deletes the face data.
+- Smaller download: the app is now about 40% smaller.
