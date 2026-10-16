@@ -20,8 +20,11 @@ android {
         applicationId = "com.eshwar.reelplay"
         minSdk = 26
         targetSdk = 37
-        versionCode = 25
-        versionName = "2.9"
+        versionCode = 26
+        versionName = "2.10"
+        // Phones only. The torrent engine has no x86 build anyway, and leaving out the
+        // emulator-only x86 libraries roughly halves the APK.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
     }
 
@@ -102,6 +105,10 @@ dependencies {
     implementation(libs.androidx.exifinterface)
     // Background update checks.
     implementation(libs.androidx.work.runtime)
+    // People: on-device face detection (ML Kit, model bundled in the app) and the face
+    // recognition model's runtime. Photos and face data never leave the phone.
+    implementation(libs.mlkit.face.detection)
+    implementation(libs.litert)
 
     // BitTorrent engine for streaming torrents and magnet links. Native builds for phones
     // only (arm64 and 32-bit arm); add the x86_64 artifact to run it on an emulator.

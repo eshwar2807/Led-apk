@@ -103,6 +103,11 @@ object Prefs {
         get() = bool("show_thumbnails", true)
         set(v) = put { putBoolean("show_thumbnails", v) }
 
+    /** People: group photos and videos by the faces in them (on the phone only). Off until asked. */
+    var faceGrouping: Boolean
+        get() = bool("face_grouping", false)
+        set(v) = put { putBoolean("face_grouping", v) }
+
     // ---- Downloads ----
     var wifiOnly: Boolean
         get() = bool("wifi_only", false)

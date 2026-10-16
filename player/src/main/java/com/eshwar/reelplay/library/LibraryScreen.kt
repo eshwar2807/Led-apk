@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
@@ -100,6 +101,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.eshwar.reelplay.editor.EditorActivity
+import com.eshwar.reelplay.faces.PeopleActivity
 import com.eshwar.reelplay.player.PlaybackPrefs
 import com.eshwar.reelplay.player.PlayerActivity
 import com.eshwar.reelplay.settings.SettingsActivity
@@ -278,6 +280,14 @@ fun LibraryScreen(insets: WindowInsets = WindowInsets(0, 0, 0, 0)) {
                         Box {
                             IconButton(onClick = { showMoreMenu = true }) { Icon(Icons.Rounded.MoreVert, "More") }
                             DropdownMenu(showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("People") },
+                                    leadingIcon = { Icon(Icons.Rounded.Face, null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        context.startActivitySafely(PeopleActivity.intent(context))
+                                    },
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Network stream") },
                                     leadingIcon = { Icon(Icons.Rounded.Language, null) },

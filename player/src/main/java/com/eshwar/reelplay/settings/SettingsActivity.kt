@@ -59,6 +59,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.eshwar.reelplay.BuildConfig
+import com.eshwar.reelplay.faces.FaceIndex
 import com.eshwar.reelplay.player.SeekBar
 import com.eshwar.reelplay.ui.ReelPlayTheme
 import com.eshwar.reelplay.update.UpdateDialog
@@ -200,6 +201,15 @@ private fun SettingsScreen(onClose: () -> Unit) {
             ) { Prefs.showNewTags = it }
             SwitchRow("Show thumbnails", "Off: faster on very large libraries", Prefs.showThumbnails) { Prefs.showThumbnails = it }
 
+            SwitchRow(
+                "People (group by face)",
+                "Finds faces in your photos and videos on this phone, so you can see everything someone is in. " +
+                    "Nothing is uploaded. Turning this off deletes the face data.",
+                Prefs.faceGrouping,
+            ) {
+                Prefs.faceGrouping = it
+                if (it) FaceIndex.scanInBackground(context) else scope.launch { FaceIndex.forget(context) }
+            }
             Spacer(Modifier.height(28.dp))
             Section("Downloads")
             SwitchRow(

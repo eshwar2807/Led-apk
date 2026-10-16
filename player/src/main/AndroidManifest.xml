@@ -5,6 +5,8 @@
     <!-- Library scan. Android 13+ splits media access by type; 14+ may grant only a
          user-picked subset, which the library treats as "limited" rather than denied. -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- People: photos are only read once face grouping is turned on. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -108,6 +110,11 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".faces.PeopleActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density" />
 
         <activity
             android:name=".settings.SettingsActivity"

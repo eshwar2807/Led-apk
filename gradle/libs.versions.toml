@@ -16,6 +16,8 @@ jsoup = "1.23.2"
 # Jellyfin's build of the Media3 FFmpeg audio decoder (DTS, TrueHD, AC-3...). Checked to link
 # against media3 1.11.1: every media3 method/field it uses exists and its abstract methods are implemented.
 ffmpegDecoder = "1.9.0+1"
+mlkitFace = "16.1.7"
+litert = "1.4.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -49,6 +51,8 @@ androidx-work-runtime = { group = "androidx.work", name = "work-runtime", versio
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 media3-ffmpeg-decoder = { group = "org.jellyfin.media3", name = "media3-ffmpeg-decoder", version.ref = "ffmpegDecoder" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+mlkit-face-detection = { group = "com.google.mlkit", name = "face-detection", version.ref = "mlkitFace" }
+litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 
 [plugins]

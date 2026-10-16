@@ -1,0 +1,3 @@
+mobile_facenet.tflite: MobileFaceNet face recognition model.
+Weights from https://github.com/foamliu/MobileFaceNet, Apache License 2.0.
+TFLite export from Qualcomm AI Hub Models (https://huggingface.co/qualcomm/MobileFaceNet), Apache License 2.0.

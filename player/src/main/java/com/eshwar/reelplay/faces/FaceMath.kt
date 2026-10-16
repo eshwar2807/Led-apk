@@ -1,0 +1,149 @@
+package com.eshwar.reelplay.faces
+
+import kotlin.math.sqrt
+
+/**
+ * The maths behind grouping faces, kept free of Android so it can be unit-tested: lining a face
+ * up for the recognition model, and sorting face embeddings into people.
+ */
+object FaceMath {
+
+    /** Model input: a 112×112 face. */
+    const val SIZE = 112
+
+    /**
+     * Where the face recognition model expects the eyes, nose tip and mouth corners in its
+     * 112×112 input (the standard ArcFace layout the model was trained on), as x,y pairs:
+     * image-left eye, image-right eye, nose, image-left mouth corner, image-right mouth corner.
+     */
+    val TEMPLATE = floatArrayOf(
+        38.2946f, 51.6963f,
+        73.5318f, 51.5014f,
+        56.0252f, 71.7366f,
+        41.5493f, 92.3655f,
+        70.7299f, 92.2041f,
+    )
+
+    /**
+     * The rotation + uniform scale + shift that best maps the points [src] onto [dst] (both x,y
+     * pairs), by least squares. Returns a row-major 2×3 affine matrix: a, −b, tx, b, a, ty.
+     */
+    fun similarity(src: FloatArray, dst: FloatArray): FloatArray {
+        require(src.size == dst.size && src.size >= 4 && src.size % 2 == 0)
+        val n = src.size / 2
+        var sx = 0.0; var sy = 0.0; var dx = 0.0; var dy = 0.0
+        for (i in 0 until n) {
+            sx += src[2 * i]; sy += src[2 * i + 1]; dx += dst[2 * i]; dy += dst[2 * i + 1]
+        }
+        sx /= n; sy /= n; dx /= n; dy /= n
+        var dot = 0.0; var cross = 0.0; var norm = 0.0
+        for (i in 0 until n) {
+            val x = src[2 * i] - sx; val y = src[2 * i + 1] - sy
+            val u = dst[2 * i] - dx; val v = dst[2 * i + 1] - dy
+            dot += x * u + y * v
+            cross += x * v - y * u
+            norm += x * x + y * y
+        }
+        if (norm == 0.0) return floatArrayOf(1f, 0f, (dx - sx).toFloat(), 0f, 1f, (dy - sy).toFloat())
+        val a = dot / norm
+        val b = cross / norm
+        val tx = dx - (a * sx - b * sy)
+        val ty = dy - (b * sx + a * sy)
+        return floatArrayOf(a.toFloat(), (-b).toFloat(), tx.toFloat(), b.toFloat(), a.toFloat(), ty.toFloat())
+    }
+
+    fun normalize(v: FloatArray): FloatArray {
+        var s = 0.0
+        for (x in v) s += x * x
+        val n = sqrt(s).toFloat()
+        return if (n == 0f) v.copyOf() else FloatArray(v.size) { v[it] / n }
+    }
+
+    /** Cosine similarity of two unit vectors: 1 for the same direction, about 0 for unrelated. */
+    fun dot(a: FloatArray, b: FloatArray): Float {
+        var s = 0f
+        for (i in a.indices) s += a[i] * b[i]
+        return s
+    }
+
+    /**
+     * Two faces from the model belong to the same person when their cosine similarity is above
+     * about 0.27 (its tested threshold); clean photos of one person score 0.6–0.8, different
+     * people under 0.25. Matching a face against a person's average face, which is steadier than
+     * any single face, uses a stricter bar so different people don't drift together.
+     */
+    const val JOIN = 0.40f
+
+    /** Two groups whose average faces are this alike are the same person. */
+    const val MERGE = 0.50f
+
+    /**
+     * Sorts unit [embeddings] into people. Clearer faces ([quality], higher is better) go
+     * first, so each person starts from a good face. Returns groups of indices into
+     * [embeddings], biggest first.
+     */
+    fun cluster(embeddings: List<FloatArray>, quality: List<Float>, join: Float = JOIN, merge: Float = MERGE): List<List<Int>> {
+        if (embeddings.isEmpty()) return emptyList()
+        val dim = embeddings[0].size
+        val sums = ArrayList<FloatArray>()
+        val centres = ArrayList<FloatArray>()
+        val members = ArrayList<MutableList<Int>>()
+        for (i in embeddings.indices.sortedByDescending { quality[it] }) {
+            val e = embeddings[i]
+            var best = -1
+            var bestScore = join
+            for (c in centres.indices) {
+                val s = dot(e, centres[c])
+                if (s > bestScore) { bestScore = s; best = c }
+            }
+            if (best < 0) {
+                sums += e.copyOf(); centres += e.copyOf(); members += mutableListOf(i)
+            } else {
+                val sum = sums[best]
+                for (k in 0 until dim) sum[k] += e[k]
+                centres[best] = normalize(sum)
+                members[best] += i
+            }
+        }
+        // A person whose faces were seen from very different angles can start two groups
+        // before either has a steady average; join any groups that ended up alike.
+        val parent = IntArray(centres.size) { it }
+        fun root(x: Int): Int { var r = x; while (parent[r] != r) r = parent[r]; return r }
+        for (a in centres.indices) for (b in a + 1 until centres.size) {
+            if (dot(centres[a], centres[b]) > merge) {
+                val ra = root(a); val rb = root(b)
+                if (ra != rb) parent[rb] = ra
+            }
+        }
+        return centres.indices.groupBy(::root)
+            .map { (_, groups) -> groups.flatMap { members[it] } }
+            .sortedByDescending { it.size }
+    }
+
+    /** The unit-length average of some faces: what a person "looks like" to the model. */
+    fun centre(faces: List<FloatArray>): FloatArray {
+        val sum = FloatArray(faces.first().size)
+        for (f in faces) for (k in sum.indices) sum[k] += f[k]
+        return normalize(sum)
+    }
+
+    /** Within one photo or video, the same person seen several times: keep their clearest face. */
+    fun dedupe(embeddings: List<FloatArray>, quality: List<Float>, same: Float = 0.55f): List<Int> {
+        val kept = ArrayList<Int>()
+        for (i in embeddings.indices.sortedByDescending { quality[it] }) {
+            if (kept.none { dot(embeddings[it], embeddings[i]) > same }) kept += i
+        }
+        return kept
+    }
+
+    fun toBytes(v: FloatArray): ByteArray {
+        val out = java.nio.ByteBuffer.allocate(v.size * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        for (x in v) out.putFloat(x)
+        return out.array()
+    }
+
+    fun fromBytes(b: ByteArray): FloatArray {
+        val buf = java.nio.ByteBuffer.wrap(b).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        return FloatArray(b.size / 4) { buf.getFloat() }
+    }
+}
