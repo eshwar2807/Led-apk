@@ -1,1 +1,1 @@
-- People: blurry, tiny and low-quality faces (for example in short meme clips) are no longer used. They all looked alike to the face matcher and pulled strangers into one group. Your photos and videos are looked at once more after updating; names you gave are kept.
+- People: each photo and video in a person's list now shows the face that matched, in a small circle in the corner, so you can see why it's there.

@@ -14,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -413,6 +414,14 @@ private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit) {
                 },
             ) {
                 VideoThumbnail(item.uri, Modifier.fillMaxSize())
+                // The face that put this here, so a wrong match is easy to spot.
+                person.faceIn[item.key]?.let { faceId ->
+                    FaceAvatar(
+                        faceId,
+                        Modifier.align(Alignment.TopStart).padding(4.dp).size(36.dp)
+                            .border(1.5.dp, Color.White, CircleShape),
+                    )
+                }
                 if (item.isVideo) {
                     Row(
                         Modifier.align(Alignment.BottomEnd).padding(4.dp)

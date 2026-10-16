@@ -37,6 +37,8 @@ data class Person(
     val centre: FloatArray,
     /** Newest first. */
     val items: List<MediaRef>,
+    /** For each item (by key), the face in it that made it this person's. */
+    val faceIn: Map<String, Long> = emptyMap(),
 ) {
     val photos: Int get() = items.count { !it.isVideo }
     val videos: Int get() = items.count { it.isVideo }
@@ -198,6 +200,7 @@ object FaceIndex {
                     name = name,
                     centre = FaceMath.centre(members.map { it.embedding }),
                     items = items.sortedByDescending { it.takenAt },
+                    faceIn = members.groupBy { it.mediaKey }.mapValues { (_, fs) -> fs.maxBy { it.quality }.id },
                 )
             }
             .sortedWith(compareByDescending<Person> { it.name != null }.thenByDescending { it.items.size })

@@ -20,8 +20,8 @@ android {
         applicationId = "com.eshwar.reelplay"
         minSdk = 26
         targetSdk = 37
-        versionCode = 30
-        versionName = "2.14"
+        versionCode = 31
+        versionName = "2.15"
         // Phones only. The torrent engine has no x86 build anyway, and leaving out the
         // emulator-only x86 libraries roughly halves the APK.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
