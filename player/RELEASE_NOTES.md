@@ -1,3 +1,2 @@
-- People now searches your photos and videos while the People screen is open, instead of waiting for the phone to allow background work (some phones held it back for a long time).
-- People shows its progress, how many photos and videos it has looked at and how many faces it found, and says what went wrong if it can't search.
-- Photos and videos that couldn't be read are tried again later instead of being skipped for good. Everything is looked at again once after this update.
+- People: fixed faces being lined up the wrong way round before matching, which put everyone into one group. Your photos and videos are looked at again once after updating, and different people now get their own groups.
+- People searches while its screen is open, shows its progress and how many faces it has found, and says what went wrong if it can't search.

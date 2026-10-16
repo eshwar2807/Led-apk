@@ -70,4 +70,36 @@ class FaceMathTest {
         val v = floatArrayOf(0.5f, -1.25f, 3e-7f, 0f)
         assertArrayEquals(v, FaceMath.fromBytes(FaceMath.toBytes(v)), 0f)
     }
+
+    /** A face in a photo: the template turned, scaled and moved. */
+    private fun photoFace(deg: Double = 15.0): FloatArray {
+        val c = cos(Math.toRadians(deg)).toFloat(); val s = sin(Math.toRadians(deg)).toFloat()
+        return FloatArray(10) { i ->
+            val x = FaceMath.TEMPLATE[i - i % 2]; val y = FaceMath.TEMPLATE[i - i % 2 + 1]
+            if (i % 2 == 0) 2.5f * (c * x - s * y) + 300 else 2.5f * (s * x + c * y) + 120
+        }
+    }
+
+    @Test
+    fun align_fitsAFaceWhicheverWayLeftAndRightAreNamed() {
+        val face = photoFace()
+        // The same points with the eyes and mouth corners named the other way round.
+        val mirrored = FloatArray(10)
+        for ((to, from) in intArrayOf(1, 0, 2, 4, 3).withIndex()) {
+            mirrored[2 * to] = face[2 * from]; mirrored[2 * to + 1] = face[2 * from + 1]
+        }
+        for (points in listOf(face, mirrored)) {
+            val m = FaceMath.align(points)!!
+            assertEquals(0f, FaceMath.residual(face, m), 0.05f)
+            // Scale back to template size (the face was 2.5× bigger), not shrunk to a blob.
+            assertEquals(0.4f, kotlin.math.hypot(m[0], m[3]), 0.01f)
+        }
+    }
+
+    @Test
+    fun align_rejectsPointsThatArentAFace() {
+        // The eyes far apart and the "mouth" up between them: no turn or size makes that a face.
+        val junk = floatArrayOf(0f, 0f, 200f, 0f, 100f, 100f, 90f, 0f, 110f, 0f)
+        assertEquals(null, FaceMath.align(junk))
+    }
 }

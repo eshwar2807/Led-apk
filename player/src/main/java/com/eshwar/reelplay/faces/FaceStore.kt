@@ -29,7 +29,7 @@ class StoredFace(val id: Long, val mediaKey: String, val embedding: FloatArray, 
  * model's embedding plus a small picture of the face for the People screen), and the names the
  * user gave to people. Never leaves the phone; turning the feature off deletes it.
  */
-class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext, NAME, null, 2) {
+class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext, NAME, null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -47,8 +47,9 @@ class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext,
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // 2.10 recorded items whose face search failed as "no faces"; look at everything again.
-        if (oldVersion < 2) {
+        // Before version 3, faces were lined up wrongly (left and right mixed up) and failed
+        // searches were recorded as "no faces": look at everything again.
+        if (oldVersion < 3) {
             db.execSQL("DROP TABLE IF EXISTS face")
             db.execSQL("DROP TABLE IF EXISTS media")
             db.execSQL("DROP TABLE IF EXISTS label")

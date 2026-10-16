@@ -52,6 +52,39 @@ object FaceMath {
         return floatArrayOf(a.toFloat(), (-b).toFloat(), tx.toFloat(), b.toFloat(), a.toFloat(), ty.toFloat())
     }
 
+    /**
+     * The matrix that lines up a face with [TEMPLATE], from its five points in template order,
+     * or null if they don't look like a face. Detectors disagree on whether "left eye" means
+     * the person's left or the picture's left; the wrong reading can't be fitted without a
+     * mirror, so it shrinks the face to a tiny blob that matches everyone. Both readings are
+     * tried and the one that fits is kept.
+     */
+    fun align(points: FloatArray): FloatArray? {
+        val swapped = FloatArray(10)
+        for ((to, from) in intArrayOf(1, 0, 2, 4, 3).withIndex()) {
+            swapped[2 * to] = points[2 * from]
+            swapped[2 * to + 1] = points[2 * from + 1]
+        }
+        val best = listOf(points, swapped).map { it to similarity(it, TEMPLATE) }
+            .minBy { (p, m) -> residual(p, m) }
+        return best.second.takeIf { residual(best.first, it) <= MAX_RESIDUAL }
+    }
+
+    /** How far, on average, the points land from the template's (in template pixels). */
+    fun residual(points: FloatArray, m: FloatArray): Float {
+        var sum = 0.0
+        for (i in 0 until points.size / 2) {
+            val x = points[2 * i]; val y = points[2 * i + 1]
+            val dx = m[0] * x + m[1] * y + m[2] - TEMPLATE[2 * i]
+            val dy = m[3] * x + m[4] * y + m[5] - TEMPLATE[2 * i + 1]
+            sum += dx * dx + dy * dy
+        }
+        return sqrt(sum / (points.size / 2)).toFloat()
+    }
+
+    /** Real faces fit within a few pixels; a mirrored reading misses by 20 or more. */
+    private const val MAX_RESIDUAL = 8f
+
     fun normalize(v: FloatArray): FloatArray {
         var s = 0.0
         for (x in v) s += x * x

@@ -60,12 +60,12 @@ class FaceEngine(context: Context) : Closeable {
 
     private fun facesIn(bmp: Bitmap, timeMs: Long): List<FoundFace> {
         val found = Tasks.await(detector.process(InputImage.fromBitmap(bmp, 0)), 30, TimeUnit.SECONDS)
-        val usable = found.mapNotNull { f -> landmarks(f)?.let { f to it } }
-            .filter { (f, _) -> quality(f) > 0f }
+        val usable = found.filter { quality(it) > 0f }
+            .mapNotNull { f -> landmarks(f)?.let(FaceMath::align)?.let { f to it } }
         // The model takes two faces per run; pair them up.
         val out = ArrayList<FoundFace>()
         for (pair in usable.chunked(2)) {
-            val crops = pair.mapIndexed { i, (_, points) -> align(bmp, points, inputs[i] as ByteBuffer) }
+            val crops = pair.mapIndexed { i, (_, matrix) -> draw(bmp, matrix, inputs[i] as ByteBuffer) }
             if (pair.size == 1) {
                 (inputs[1] as ByteBuffer).apply { clear(); put((inputs[0] as ByteBuffer).also { it.rewind() }); rewind() }
                 (inputs[0] as ByteBuffer).rewind()
@@ -81,7 +81,7 @@ class FaceEngine(context: Context) : Closeable {
 
     /** Eyes, nose and mouth corners in the template's order, or null if any is missing. */
     private fun landmarks(f: Face): FloatArray? {
-        // ML Kit names them from the person's side: their right eye is on the image's left.
+        // Which side ML Kit calls left varies; FaceMath.align works it out.
         val order = intArrayOf(
             FaceLandmark.RIGHT_EYE, FaceLandmark.LEFT_EYE, FaceLandmark.NOSE_BASE,
             FaceLandmark.MOUTH_RIGHT, FaceLandmark.MOUTH_LEFT,
@@ -108,8 +108,7 @@ class FaceEngine(context: Context) : Closeable {
     }
 
     /** Draws the face upright and to the template's size into [into]; returns a small JPEG of it. */
-    private fun align(src: Bitmap, points: FloatArray, into: ByteBuffer): ByteArray {
-        val m = FaceMath.similarity(points, FaceMath.TEMPLATE)
+    private fun draw(src: Bitmap, m: FloatArray, into: ByteBuffer): ByteArray {
         val matrix = Matrix().apply { setValues(floatArrayOf(m[0], m[1], m[2], m[3], m[4], m[5], 0f, 0f, 1f)) }
         face.eraseColor(0xFF000000.toInt())
         canvas.drawBitmap(src, matrix, paint)
