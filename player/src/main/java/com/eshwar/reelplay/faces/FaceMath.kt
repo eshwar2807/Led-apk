@@ -100,15 +100,56 @@ object FaceMath {
     }
 
     /**
-     * Two faces from the model belong to the same person when their cosine similarity is above
-     * about 0.27 (its tested threshold); clean photos of one person score 0.6–0.8, different
-     * people under 0.25. Matching a face against a person's average face, which is steadier than
-     * any single face, uses a stricter bar so different people don't drift together.
+     * Thresholds for [cluster] on faces measured from the library's average face ([centred]).
+     * In raw form every face in one library shares a lot (the same family, children's features,
+     * lighting, video quality), so different people often score 0.3–0.45 against each other,
+     * barely below the same person's 0.45–0.6, and fixed raw thresholds lumped everyone into one
+     * group. With the shared part taken away, different people land around 0 or below and the
+     * same person stays clearly positive. Tuned on simulated libraries of look-alike people:
+     * groups stayed at least 97% one person; the cost is that a person can come out as two
+     * groups, which naming both the same joins up.
      */
-    const val JOIN = 0.40f
+    const val JOIN = 0.30f
 
-    /** Two groups whose average faces are this alike are the same person. */
+    /** Two groups whose average (centred) faces are this alike are the same person. */
     const val MERGE = 0.50f
+
+    /**
+     * Sorts a whole library's unit [embeddings] into people: groups of indices, biggest first,
+     * plus the average face they were measured from (for matching saved names later).
+     *
+     * The average is worked out per person, not per face: a plain average leans towards whoever
+     * is in most of the photos, and measured from there that person's own faces look unrelated
+     * and fall apart into many groups. So it groups once from the plain average, then again
+     * from the average of the people found, twice over.
+     */
+    fun people(embeddings: List<FloatArray>, quality: List<Float>): Pair<List<List<Int>>, FloatArray> {
+        if (embeddings.isEmpty()) return emptyList<List<Int>>() to FloatArray(0)
+        val plain = mean(embeddings)
+        val length = sqrt(dot(plain, plain))
+        var average = plain
+        repeat(2) {
+            val groups = cluster(embeddings.map { centred(it, average) }, quality)
+            val faces = groups.filter { it.size >= 3 }.map { g -> centre(g.map { embeddings[it] }) }
+            if (faces.size < 2) return@repeat
+            val m = mean(faces)
+            val l = sqrt(dot(m, m))
+            if (l > 0f) average = FloatArray(m.size) { m[it] * length / l }
+        }
+        return cluster(embeddings.map { centred(it, average) }, quality) to average
+    }
+
+    /** The plain average of [faces]: what every face in the library has in common. */
+    fun mean(faces: List<FloatArray>): FloatArray {
+        val sum = FloatArray(faces.firstOrNull()?.size ?: 0)
+        for (f in faces) for (k in sum.indices) sum[k] += f[k]
+        for (k in sum.indices) sum[k] /= faces.size
+        return sum
+    }
+
+    /** [face] with the library's shared part ([mean]) taken out, back to unit length. */
+    fun centred(face: FloatArray, mean: FloatArray): FloatArray =
+        normalize(FloatArray(face.size) { face[it] - mean[it] })
 
     /**
      * Sorts unit [embeddings] into people. Clearer faces ([quality], higher is better) go

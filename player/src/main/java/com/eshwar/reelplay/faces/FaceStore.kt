@@ -140,26 +140,23 @@ class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext,
             if (c.moveToFirst() && !c.isNull(0)) c.getBlob(0) else null
         }
 
-    fun labels(): List<Pair<String, FloatArray>> {
-        val out = ArrayList<Pair<String, FloatArray>>()
-        readableDatabase.rawQuery("SELECT name, centre FROM label", null).use { c ->
-            while (c.moveToNext()) out += c.getString(0) to FaceMath.fromBytes(c.getBlob(1))
+    class Label(val id: Long, val name: String, val centre: FloatArray)
+
+    fun labels(): List<Label> {
+        val out = ArrayList<Label>()
+        readableDatabase.rawQuery("SELECT id, name, centre FROM label", null).use { c ->
+            while (c.moveToNext()) out += Label(c.getLong(0), c.getString(1), FaceMath.fromBytes(c.getBlob(2)))
         }
         return out
     }
 
-    /** Names (or, with a blank [name], un-names) the person who looks like [centre]. */
-    fun setLabel(centre: FloatArray, name: String) {
-        val db = writableDatabase
-        db.transaction {
-            // Drop older names that pointed at this same person.
-            val stale = ArrayList<Long>()
-            rawQuery("SELECT id, centre FROM label", null).use { c ->
-                while (c.moveToNext()) {
-                    if (FaceMath.dot(FaceMath.fromBytes(c.getBlob(1)), centre) > LABEL_MATCH) stale += c.getLong(0)
-                }
-            }
-            for (id in stale) delete("label", "id = ?", arrayOf(id.toString()))
+    /**
+     * Replaces the names in [replacing] with [name] for the person who looks like [centre] (raw
+     * average face). A blank [name] just removes them.
+     */
+    fun setLabel(replacing: Collection<Long>, centre: FloatArray, name: String) {
+        writableDatabase.transaction {
+            for (id in replacing) delete("label", "id = ?", arrayOf(id.toString()))
             if (name.isNotBlank()) {
                 insert("label", null, ContentValues().apply { put("name", name.trim()); put("centre", FaceMath.toBytes(centre)) })
             }
@@ -169,7 +166,10 @@ class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext,
     companion object {
         const val NAME = "faces.db"
 
-        /** A saved name belongs to a group whose average face is at least this close to it. */
-        const val LABEL_MATCH = 0.55f
+        /**
+         * A saved name belongs to a group whose average face is at least this close to it,
+         * both measured from the library's average face.
+         */
+        const val LABEL_MATCH = 0.5f
     }
 }

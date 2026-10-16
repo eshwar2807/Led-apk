@@ -102,4 +102,40 @@ class FaceMathTest {
         val junk = floatArrayOf(0f, 0f, 200f, 0f, 100f, 100f, 90f, 0f, 110f, 0f)
         assertEquals(null, FaceMath.align(junk))
     }
+
+    /**
+     * A library of look-alike people, as the model sees a family's children: different people
+     * score about 0.4 against each other, the same person about 0.55. Grouping on raw scores
+     * lumped them all together; measured from the library's average face they come apart.
+     */
+    @Test
+    fun cluster_centred_separatesLookAlikes() {
+        val rnd = java.util.Random(11)
+        fun gauss() = FloatArray(128) { rnd.nextGaussian().toFloat() }
+        fun mix(a: FloatArray, wa: Float, b: FloatArray, wb: Float) =
+            FaceMath.normalize(FloatArray(128) { wa * a[it] + wb * b[it] })
+        val shared = FaceMath.normalize(gauss())
+        val looks = List(5) { mix(shared, kotlin.math.sqrt(0.7f), FaceMath.normalize(gauss()), kotlin.math.sqrt(0.3f)) }
+        val sizes = listOf(80, 40, 20, 10, 10)
+        val faces = ArrayList<FloatArray>(); val who = ArrayList<Int>()
+        for ((p, n) in sizes.withIndex()) repeat(n) {
+            faces += mix(looks[p], kotlin.math.sqrt(0.55f), FaceMath.normalize(gauss()), kotlin.math.sqrt(0.45f)); who += p
+        }
+        val quality = List(faces.size) { rnd.nextFloat() }
+
+        // The old way: raw scores, everyone in one group.
+        val raw = FaceMath.cluster(faces, quality, join = 0.40f, merge = 0.50f)
+        assertEquals(faces.size, raw.maxOf { it.size })
+
+        val groups = FaceMath.people(faces, quality).first
+        // Every group is (almost) one person...
+        val pure = groups.sumOf { g -> g.groupingBy { who[it] }.eachCount().values.max() }
+        assertEquals(1.0, pure.toDouble() / faces.size, 0.03)
+        // ...and someone in lots of photos (including the one in most of them) stays mostly in
+        // one group. People seen only a few times may split; naming both parts joins them.
+        for (p in sizes.indices.filter { sizes[it] >= 20 }) {
+            val best = groups.maxOf { g -> g.count { who[it] == p } }
+            assert(best >= sizes[p] / 2) { "person $p: biggest group has $best of ${sizes[p]}" }
+        }
+    }
 }

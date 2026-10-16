@@ -166,38 +166,75 @@ object FaceIndex {
         runCatching { store(context).stats() }.getOrNull()?.let { (p, v, f) -> IndexStats(p, v, f) } ?: IndexStats()
     }
 
+    /** The library's average face as of the last [people], for matching names to people. */
+    @Volatile private var lastMean: FloatArray? = null
+
     /** Everyone found so far, most photographed first. */
     suspend fun people(context: Context): List<Person> = withContext(Dispatchers.Default) {
         if (!Prefs.faceGrouping) return@withContext emptyList()
         val db = store(context)
         val faces = db.faces()
+        if (faces.isEmpty()) return@withContext emptyList()
         val media = db.media()
         val labels = db.labels()
-        FaceMath.cluster(faces.map { it.embedding }, faces.map { it.quality })
-            .mapNotNull { group ->
+        val (clusters, mean) = FaceMath.people(faces.map { it.embedding }, faces.map { it.quality })
+        lastMean = mean
+        val centred = faces.map { FaceMath.centred(it.embedding, mean) }
+        val labelCentres = labels.map { FaceMath.centred(it.centre, mean) }
+        val groups = clusters.map { group ->
+            val name = labelFor(FaceMath.centre(group.map { centred[it] }), labelCentres)?.let { labels[it].name }
+            name to group
+        }
+        // Groups given the same name are one person: that's how a person split in two is joined up.
+        val byName = groups.filter { it.first != null }.groupBy({ it.first }, { it.second })
+            .map { (name, gs) -> name to gs.flatten() }
+        (byName + groups.filter { it.first == null })
+            .mapNotNull { (name, group) ->
                 val members = group.map { faces[it] }
                 val items = members.mapNotNull { media[it.mediaKey] }.distinctBy { it.key }
-                if (items.size < MIN_ITEMS) return@mapNotNull null
-                val centre = FaceMath.centre(members.map { it.embedding })
-                val name = labels.filter { FaceMath.dot(it.second, centre) > FaceStore.LABEL_MATCH }
-                    .maxByOrNull { FaceMath.dot(it.second, centre) }?.first
+                if (items.size < MIN_ITEMS && name == null) return@mapNotNull null
                 Person(
                     coverFaceId = members.maxBy { it.quality }.id,
                     name = name,
-                    centre = centre,
+                    centre = FaceMath.centre(members.map { it.embedding }),
                     items = items.sortedByDescending { it.takenAt },
                 )
             }
             .sortedWith(compareByDescending<Person> { it.name != null }.thenByDescending { it.items.size })
     }
 
+    /** The index of the saved name whose face is closest to [centre], if close enough. */
+    private fun labelFor(centre: FloatArray, labelCentres: List<FloatArray>): Int? =
+        labelCentres.indices.filter { FaceMath.dot(labelCentres[it], centre) > FaceStore.LABEL_MATCH }
+            .maxByOrNull { FaceMath.dot(labelCentres[it], centre) }
+
     suspend fun faceCrop(context: Context, faceId: Long): Bitmap? = withContext(Dispatchers.IO) {
         if (!Prefs.faceGrouping) return@withContext null
         store(context).crop(faceId)?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
     }
 
+    /**
+     * Names [person]. Giving another group the same name joins the two; a blank name removes it.
+     * A merged person can carry several saved faces under one name; renaming replaces them all.
+     */
     suspend fun rename(context: Context, person: Person, name: String) = withContext(Dispatchers.IO) {
-        store(context).setLabel(person.centre, name)
+        val db = store(context)
+        val labels = db.labels()
+        val mean = lastMean
+        val replacing = when {
+            person.name != null -> labels.filter { it.name == person.name }.map { it.id }
+            mean != null -> labelFor(FaceMath.centred(person.centre, mean), labels.map { FaceMath.centred(it.centre, mean) })
+                ?.let { listOf(labels[it].id) }.orEmpty()
+            else -> emptyList()
+        }
+        if (person.name != null && name.isNotBlank()) {
+            // Keep each saved face (one per joined group) and just change the name.
+            val kept = labels.filter { it.id in replacing }
+            db.setLabel(replacing, person.centre, "")
+            for (l in kept) db.setLabel(emptyList(), l.centre, name)
+        } else {
+            db.setLabel(replacing, person.centre, name)
+        }
     }
 
     // ---- Reading the phone's media ----

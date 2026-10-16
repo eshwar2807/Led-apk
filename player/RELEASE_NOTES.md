@@ -1,2 +1,2 @@
-- People: fixed faces being lined up the wrong way round before matching, which put everyone into one group. Your photos and videos are looked at again once after updating, and different people now get their own groups.
-- People searches while its screen is open, shows its progress and how many faces it has found, and says what went wrong if it can't search.
+- People: much better at telling people apart, including children and family members who look alike. Before, faces that were only a bit alike were put into one group.
+- If someone shows up as two groups, give both the same name (tap the pencil; names you've used are offered) and they join into one.

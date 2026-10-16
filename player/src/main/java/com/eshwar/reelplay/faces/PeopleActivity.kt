@@ -18,6 +18,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -117,7 +119,7 @@ private fun canReadPhotos(context: Context): Boolean {
 
 private enum class Kind(val label: String) { ALL("All"), PHOTOS("Photos"), VIDEOS("Videos") }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun PeopleScreen(onClose: () -> Unit) {
     val context = LocalContext.current
@@ -252,12 +254,35 @@ private fun PeopleScreen(onClose: () -> Unit) {
             onDismissRequest = { renaming = false },
             title = { Text("Who is this?") },
             text = {
-                OutlinedTextField(name, { name = it }, singleLine = true, placeholder = { Text("Name") })
+                val others = people.orEmpty().mapNotNull { it.name }.filter { it != open.name }.distinct()
+                Column {
+                    OutlinedTextField(name, { name = it }, singleLine = true, placeholder = { Text("Name") })
+                    if (others.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Same person as someone already named? Pick them to join the two.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for (n in others) FilterChip(selected = name.trim() == n, onClick = { name = n }, label = { Text(n) })
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
                     renaming = false
-                    scope.launch { FaceIndex.rename(context, open, name); reload++ }
+                    scope.launch {
+                        FaceIndex.rename(context, open, name)
+                        // Stay on this person, who may now be joined with another group.
+                        val now = runCatching { FaceIndex.people(context) }.getOrNull()
+                        if (now != null) {
+                            people = now
+                            openId = now.firstOrNull { it.name == name.trim() }?.coverFaceId ?: openId
+                        }
+                        reload++
+                    }
                 }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
