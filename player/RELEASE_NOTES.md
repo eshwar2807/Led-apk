@@ -1,2 +1,3 @@
-- New: People. Media Player ⋮ → People groups your photos and videos by the faces in them, so you can see everything someone is in, filter to just photos or just videos, and give people names. It's off until you turn it on, and it all happens on your phone: nothing is uploaded. Turning it off in Settings deletes the face data.
-- Smaller download: the app is now about 40% smaller.
+- People now searches your photos and videos while the People screen is open, instead of waiting for the phone to allow background work (some phones held it back for a long time).
+- People shows its progress, how many photos and videos it has looked at and how many faces it found, and says what went wrong if it can't search.
+- Photos and videos that couldn't be read are tried again later instead of being skipped for good. Everything is looked at again once after this update.

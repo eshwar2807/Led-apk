@@ -137,11 +137,20 @@ private fun PeopleScreen(onClose: () -> Unit) {
         if (Prefs.faceGrouping) FaceIndex.scanInBackground(context)
     }
 
-    LaunchedEffect(enabled) { if (enabled) FaceIndex.scanInBackground(context) }
+    // Search right here while the screen is open: background work can be held back for a long
+    // time by battery savers (some phones barely run it at all). The worker carries on after.
+    LaunchedEffect(enabled, photoAccess) {
+        if (enabled) {
+            FaceIndex.scanInBackground(context)
+            FaceIndex.scan(context)
+        }
+    }
     // Refresh the groups as the scan goes: often at first, so people show up quickly.
     val step = if (scan.done < 50) 10 else 50
+    var stats by remember { mutableStateOf(IndexStats()) }
     LaunchedEffect(enabled, reload, scan.running, scan.done / step) {
         people = if (enabled) runCatching { FaceIndex.people(context) }.getOrNull() ?: people else null
+        stats = FaceIndex.stats(context)
     }
 
     // A person is found again by any of their faces; the cover face can change as more are found.
@@ -194,16 +203,38 @@ private fun PeopleScreen(onClose: () -> Unit) {
                     if (scan.running) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                             Text(
-                                "Looking for faces… ${scan.done} of ${scan.total}",
+                                if (scan.total == 0) "Getting your photos and videos ready…"
+                                else "Looking for faces… ${scan.done} of ${scan.total}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.height(6.dp))
-                            LinearProgressIndicator(
-                                progress = { if (scan.total == 0) 0f else scan.done.toFloat() / scan.total },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            if (scan.total == 0) {
+                                LinearProgressIndicator(Modifier.fillMaxWidth())
+                            } else {
+                                LinearProgressIndicator(
+                                    progress = { scan.done.toFloat() / scan.total },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
+                    }
+                    scan.error?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                    if (open == null && (stats.photos + stats.videos) > 0) {
+                        Text(
+                            "Looked at ${plural(stats.photos, "photo")} and ${plural(stats.videos, "video")} · " +
+                                "${plural(stats.faces, "face")} found",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
                     }
                     if (open != null) {
                         PersonMedia(open, kind, onKind = { kind = it })
@@ -295,6 +326,8 @@ private fun PeopleGrid(people: List<Person>?, scanning: Boolean, onOpen: (Person
         }
     }
 }
+
+private fun plural(n: Int, word: String) = if (n == 1) "1 $word" else "$n ${word}s"
 
 private fun counts(p: Person): String = listOfNotNull(
     p.photos.takeIf { it > 0 }?.let { if (it == 1) "1 photo" else "$it photos" },

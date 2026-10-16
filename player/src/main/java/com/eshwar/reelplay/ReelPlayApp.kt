@@ -2,6 +2,7 @@ package com.eshwar.reelplay
 
 import android.app.Application
 import android.util.Log
+import com.eshwar.reelplay.faces.FaceIndex
 import com.eshwar.reelplay.settings.AppSettings
 import com.eshwar.reelplay.settings.Prefs
 import com.eshwar.reelplay.torrent.TorrentDownloadService
@@ -18,6 +19,8 @@ class ReelPlayApp : Application() {
         AppSettings.load(this)
         Prefs.init(this)
         if (Prefs.autoUpdateCheck) UpdateWorker.schedule(this) else UpdateWorker.cancel(this)
+        // People: pick up photos and videos added since last time.
+        FaceIndex.scanInBackground(this)
 
         // Initialize yt-dlp & FFmpeg engine (Seal's downloader) on a background thread.
         thread(name = "ytdlp-init") {

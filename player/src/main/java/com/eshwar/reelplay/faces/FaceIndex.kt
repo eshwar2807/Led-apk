@@ -42,7 +42,16 @@ data class Person(
     val videos: Int get() = items.count { it.isVideo }
 }
 
-data class ScanState(val running: Boolean = false, val done: Int = 0, val total: Int = 0)
+data class ScanState(
+    val running: Boolean = false,
+    val done: Int = 0,
+    val total: Int = 0,
+    /** Why the last scan stopped or skipped things, in words for the user; null if all went well. */
+    val error: String? = null,
+)
+
+/** What the index holds so far. */
+data class IndexStats(val photos: Int = 0, val videos: Int = 0, val faces: Int = 0)
 
 /**
  * Looks through the phone's photos and videos for faces and groups them into people. Opt-in
@@ -85,41 +94,76 @@ object FaceIndex {
         }
     }
 
+    /**
+     * Looks at every photo and video that's new or changed since last time. Safe to call from
+     * several places at once (the People screen while it's open, the background worker): they
+     * take turns, and whoever comes second finds nothing left to do.
+     */
     suspend fun scan(context: Context) = lock.withLock {
         withContext(Dispatchers.Default) {
             if (!Prefs.faceGrouping) return@withContext
-            val db = store(context)
-            val onPhone = (photos(context) + videos(context)).associateBy { it.key }
-            val indexed = db.indexed()
-            db.remove(indexed.keys - onPhone.keys)
-            val todo = onPhone.values.filter { indexed[it.key] != it.modified }.sortedByDescending { it.takenAt }
-            if (todo.isEmpty()) return@withContext
-            _state.value = ScanState(true, 0, todo.size)
-            val engine = try {
-                FaceEngine(context)
-            } catch (e: Throwable) {
-                Log.w(TAG, "face engine unavailable", e)
-                _state.value = ScanState()
-                return@withContext
-            }
+            _state.value = ScanState(running = true)
+            var error: String? = null
+            var done = 0
+            var total = 0
             try {
-                for ((i, item) in todo.withIndex()) {
-                    if (!currentCoroutineContext().isActive || !Prefs.faceGrouping) break
-                    val faces = try {
-                        if (item.isVideo) videoFaces(context, engine, item) else photoFaces(context, engine, item)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "couldn't read ${item.key}", e)
-                        emptyList()
-                    }
-                    val kept = FaceMath.dedupe(faces.map { it.embedding }, faces.map { it.quality }).map { faces[it] }
-                    db.put(item, kept.take(MAX_FACES_PER_ITEM))
-                    _state.value = ScanState(true, i + 1, todo.size)
+                val db = store(context)
+                val onPhone = (photos(context) + videos(context)).associateBy { it.key }
+                val indexed = db.indexed()
+                db.remove(indexed.keys - onPhone.keys)
+                val todo = onPhone.values.filter { indexed[it.key] != it.modified }.sortedByDescending { it.takenAt }
+                total = todo.size
+                Log.i(TAG, "scan: ${onPhone.size} on the phone, ${indexed.size} indexed, ${todo.size} to look at")
+                if (todo.isEmpty()) return@withContext
+                _state.value = ScanState(true, 0, total)
+                val engine = try {
+                    FaceEngine(context)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "face engine unavailable", e)
+                    error = "The face finder couldn't start on this phone (${describe(e)})."
+                    return@withContext
                 }
+                var failed = 0
+                try {
+                    for (item in todo) {
+                        if (!currentCoroutineContext().isActive || !Prefs.faceGrouping) break
+                        try {
+                            val faces = if (item.isVideo) videoFaces(context, engine, item) else photoFaces(context, engine, item)
+                            val kept = FaceMath.dedupe(faces.map { it.embedding }, faces.map { it.quality }).map { faces[it] }
+                            db.put(item, kept.take(MAX_FACES_PER_ITEM))
+                        } catch (e: Exception) {
+                            // Not recorded, so it's tried again on the next scan.
+                            failed++
+                            Log.w(TAG, "couldn't look at ${item.key} (${item.name})", e)
+                            error = "Couldn't look at $failed of them (${describe(e)}). They'll be tried again."
+                            if (failed >= 20 && failed == done + 1) {
+                                // Nothing has worked at all: stop rather than grind through every item.
+                                error = "Faces can't be searched on this phone right now (${describe(e)})."
+                                break
+                            }
+                        }
+                        done++
+                        _state.value = ScanState(true, done, total, error)
+                    }
+                } finally {
+                    engine.close()
+                }
+                Log.i(TAG, "scan: looked at $done of $total, $failed failed")
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "scan failed", e)
+                error = "Searching stopped: ${describe(e)}"
             } finally {
-                engine.close()
-                _state.value = ScanState(false, _state.value.done, _state.value.total)
+                _state.value = ScanState(false, done, total, error)
             }
         }
+    }
+
+    private fun describe(e: Throwable): String = e.message?.takeIf { it.isNotBlank() }?.take(120) ?: e.javaClass.simpleName
+
+    suspend fun stats(context: Context): IndexStats = withContext(Dispatchers.IO) {
+        if (!Prefs.faceGrouping) return@withContext IndexStats()
+        runCatching { store(context).stats() }.getOrNull()?.let { (p, v, f) -> IndexStats(p, v, f) } ?: IndexStats()
     }
 
     /** Everyone found so far, most photographed first. */

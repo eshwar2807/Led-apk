@@ -17,6 +17,7 @@ import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -49,11 +50,16 @@ class FaceEngine(context: Context) : Closeable {
     /** The usable faces in [picture]; [timeMs] is where in a video it came from. */
     fun faces(picture: Bitmap, timeMs: Long = 0): List<FoundFace> {
         val bmp = if (picture.config == Bitmap.Config.ARGB_8888) picture else picture.copy(Bitmap.Config.ARGB_8888, false)
-        val found = try {
-            Tasks.await(detector.process(InputImage.fromBitmap(bmp, 0)))
-        } catch (_: Exception) {
-            return emptyList()
+        // Failures are thrown, not hidden: the scan reports them and tries this item again later.
+        try {
+            return facesIn(bmp, timeMs)
+        } finally {
+            if (bmp !== picture) bmp.recycle()
         }
+    }
+
+    private fun facesIn(bmp: Bitmap, timeMs: Long): List<FoundFace> {
+        val found = Tasks.await(detector.process(InputImage.fromBitmap(bmp, 0)), 30, TimeUnit.SECONDS)
         val usable = found.mapNotNull { f -> landmarks(f)?.let { f to it } }
             .filter { (f, _) -> quality(f) > 0f }
         // The model takes two faces per run; pair them up.
@@ -70,7 +76,6 @@ class FaceEngine(context: Context) : Closeable {
                 out += FoundFace(FaceMath.normalize(output[i].copyOf()), quality(f), timeMs, crops[i])
             }
         }
-        if (bmp !== picture) bmp.recycle()
         return out
     }
 

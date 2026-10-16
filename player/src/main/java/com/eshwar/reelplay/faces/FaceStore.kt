@@ -29,7 +29,7 @@ class StoredFace(val id: Long, val mediaKey: String, val embedding: FloatArray, 
  * model's embedding plus a small picture of the face for the People screen), and the names the
  * user gave to people. Never leaves the phone; turning the feature off deletes it.
  */
-class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext, NAME, null, 1) {
+class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext, NAME, null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -46,7 +46,25 @@ class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext,
         db.execSQL("CREATE TABLE label (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, centre BLOB NOT NULL)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // 2.10 recorded items whose face search failed as "no faces"; look at everything again.
+        if (oldVersion < 2) {
+            db.execSQL("DROP TABLE IF EXISTS face")
+            db.execSQL("DROP TABLE IF EXISTS media")
+            db.execSQL("DROP TABLE IF EXISTS label")
+            onCreate(db)
+        }
+    }
+
+    /** Photos looked at, videos looked at, faces found. */
+    fun stats(): Triple<Int, Int, Int> {
+        var photos = 0; var videos = 0; var faces = 0
+        readableDatabase.rawQuery("SELECT video, COUNT(*) FROM media GROUP BY video", null).use { c ->
+            while (c.moveToNext()) if (c.getInt(0) != 0) videos = c.getInt(1) else photos = c.getInt(1)
+        }
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM face", null).use { c -> if (c.moveToFirst()) faces = c.getInt(0) }
+        return Triple(photos, videos, faces)
+    }
 
     /** Every indexed item's key and the DATE_MODIFIED it was indexed at. */
     fun indexed(): Map<String, Long> {
