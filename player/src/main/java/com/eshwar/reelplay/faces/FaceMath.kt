@@ -85,6 +85,9 @@ object FaceMath {
     /** Real faces fit within a few pixels; a mirrored reading misses by 20 or more. */
     private const val MAX_RESIDUAL = 8f
 
+    /** The length of a raw model output: how confidently the model saw a face it can tell apart. */
+    fun strength(v: FloatArray): Float = sqrt(dot(v, v))
+
     fun normalize(v: FloatArray): FloatArray {
         var s = 0.0
         for (x in v) s += x * x

@@ -73,7 +73,12 @@ class FaceEngine(context: Context) : Closeable {
             val ordered = arrayOfNulls<Any>(2).also { it[in1] = inputs[0]; it[in2] = inputs[1] }
             model.runForMultipleInputsOutputs(ordered, mapOf(0 to output))
             pair.forEachIndexed { i, (f, _) ->
-                out += FoundFace(FaceMath.normalize(output[i].copyOf()), quality(f), timeMs, crops[i])
+                val raw = output[i]
+                // Blurry, tiny or blocky faces all come out alike, whoever they are, and pile
+                // up as one "person". The model answers them weakly; keep only clear answers.
+                if (FaceMath.strength(raw) >= MIN_STRENGTH) {
+                    out += FoundFace(FaceMath.normalize(raw.copyOf()), quality(f), timeMs, crops[i])
+                }
             }
         }
         return out
@@ -131,7 +136,17 @@ class FaceEngine(context: Context) : Closeable {
 
     private companion object {
         const val EMBEDDING = 128
-        const val MIN_FACE_PX = 40
+        /** Smaller faces (common in low-resolution clips) are too blurry once scaled up. */
+        const val MIN_FACE_PX = 56
+
+        /**
+         * How strongly the model must answer for a face to count. Measured on real faces: clear
+         * ones score 25–38 (median 32), low-resolution or blurry ones 15–27 (median 19–21). At 24
+         * nearly all clear faces stay (97%) and most poor ones go (81%). Poor faces of different
+         * people match each other about as well as two photos of one person, so letting them in
+         * merges strangers.
+         */
+        const val MIN_STRENGTH = 24f
 
         fun input(): ByteBuffer =
             ByteBuffer.allocateDirect(3 * FaceMath.SIZE * FaceMath.SIZE * 4).order(ByteOrder.nativeOrder())

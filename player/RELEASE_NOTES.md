@@ -1,2 +1,1 @@
-- People: much better at telling people apart, including children and family members who look alike. Before, faces that were only a bit alike were put into one group.
-- If someone shows up as two groups, give both the same name (tap the pencil; names you've used are offered) and they join into one.
+- People: blurry, tiny and low-quality faces (for example in short meme clips) are no longer used. They all looked alike to the face matcher and pulled strangers into one group. Your photos and videos are looked at once more after updating; names you gave are kept.

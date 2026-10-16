@@ -29,30 +29,32 @@ class StoredFace(val id: Long, val mediaKey: String, val embedding: FloatArray, 
  * model's embedding plus a small picture of the face for the People screen), and the names the
  * user gave to people. Never leaves the phone; turning the feature off deletes it.
  */
-class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext, NAME, null, 3) {
+class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext, NAME, null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
-            "CREATE TABLE media (key TEXT PRIMARY KEY, video INTEGER NOT NULL, uri TEXT NOT NULL, " +
+            "CREATE TABLE IF NOT EXISTS media (key TEXT PRIMARY KEY, video INTEGER NOT NULL, uri TEXT NOT NULL, " +
                 "name TEXT NOT NULL, modified INTEGER NOT NULL, duration INTEGER NOT NULL, taken INTEGER NOT NULL)",
         )
         db.execSQL(
-            "CREATE TABLE face (id INTEGER PRIMARY KEY AUTOINCREMENT, media TEXT NOT NULL, time INTEGER NOT NULL, " +
+            "CREATE TABLE IF NOT EXISTS face (id INTEGER PRIMARY KEY AUTOINCREMENT, media TEXT NOT NULL, time INTEGER NOT NULL, " +
                 "quality REAL NOT NULL, emb BLOB NOT NULL, crop BLOB)",
         )
-        db.execSQL("CREATE INDEX face_media ON face(media)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS face_media ON face(media)")
         // A name the user gave someone, kept with what that person looks like, so the name
         // finds them again when the groups are worked out afresh.
-        db.execSQL("CREATE TABLE label (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, centre BLOB NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS label (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, centre BLOB NOT NULL)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // Before version 3, faces were lined up wrongly (left and right mixed up) and failed
         // searches were recorded as "no faces": look at everything again.
-        if (oldVersion < 3) {
+        if (oldVersion < 3) db.execSQL("DROP TABLE IF EXISTS label")
+        if (oldVersion < 4) {
+            // Version 4 skips blurry and tiny faces that earlier versions kept: look again.
+            // Names are kept; they're matched to people by face, which hasn't changed.
             db.execSQL("DROP TABLE IF EXISTS face")
             db.execSQL("DROP TABLE IF EXISTS media")
-            db.execSQL("DROP TABLE IF EXISTS label")
             onCreate(db)
         }
     }
