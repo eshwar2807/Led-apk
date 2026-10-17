@@ -1,3 +1,2 @@
-- People: stricter about who is the same person, so look-alikes (for example other children of the same age) stay out of each other's groups. If someone gets split in two, give both the same name to join them.
-- Wrong video or photo in someone's list? Long-press it and choose "Take out".
-- The People screen now shows how many faces were found in photos and in videos, and photos that can't be opened are reported instead of silently skipped.
+- People: photos and videos now open in the app's own viewer, so swiping only goes through that person's photos and videos (not every photo on the phone). Pinch or double-tap to zoom photos; tap a video to play it.
+- Delete from People: the bin button in the viewer deletes what you're looking at; long-press an item for "Delete" or "Take out"; the ⋮ menu on a person deletes everything in their group. Android asks you to confirm before anything is deleted.

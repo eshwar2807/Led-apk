@@ -42,6 +42,10 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -135,6 +139,30 @@ private fun PeopleScreen(onClose: () -> Unit) {
     var openId by rememberSaveable { mutableStateOf<Long?>(null) }
     var kind by rememberSaveable { mutableStateOf(Kind.ALL) }
     var renaming by remember { mutableStateOf(false) }
+    // Photos and videos open in our own viewer, so swiping stays within this person.
+    var viewing by remember { mutableStateOf<Pair<List<MediaRef>, Int>?>(null) }
+    var deleting by remember { mutableStateOf<List<MediaRef>>(emptyList()) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val gone = deleting
+        deleting = emptyList()
+        if (result.resultCode == android.app.Activity.RESULT_OK && gone.isNotEmpty()) {
+            val keys = gone.map { it.key }.toSet()
+            viewing = viewing?.let { (list, i) ->
+                val left = list.filter { it.key !in keys }
+                if (left.isEmpty()) null else left to i.coerceAtMost(left.lastIndex)
+            }
+            scope.launch { FaceIndex.forgetMedia(context, keys); reload++ }
+        }
+    }
+    // Android asks the user to confirm before anything is deleted (Android 11 and newer).
+    fun delete(items: List<MediaRef>) {
+        if (!canDeleteMedia || items.isEmpty()) return
+        deleting = items
+        val sender = android.provider.MediaStore.createDeleteRequest(context.contentResolver, items.map { it.uri }).intentSender
+        deleteLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(sender).build())
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         photoAccess = canReadPhotos(context)
@@ -178,6 +206,20 @@ private fun PeopleScreen(onClose: () -> Unit) {
                         )
                         if (open != null) {
                             IconButton(onClick = { renaming = true }) { Icon(Icons.Rounded.Edit, "Name this person") }
+                        }
+                    }
+                },
+                actions = {
+                    if (open != null && canDeleteMedia) {
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Rounded.MoreVert, "More") }
+                            DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete all ${open.items.size} from phone") },
+                                    leadingIcon = { Icon(Icons.Rounded.Delete, null) },
+                                    onClick = { menuOpen = false; confirmDeleteAll = true },
+                                )
+                            }
                         }
                     }
                 },
@@ -241,13 +283,46 @@ private fun PeopleScreen(onClose: () -> Unit) {
                         )
                     }
                     if (open != null) {
-                        PersonMedia(open, kind, onKind = { kind = it }, onChanged = { reload++ })
+                        PersonMedia(
+                            open, kind, onKind = { kind = it }, onChanged = { reload++ },
+                            onView = { list, i -> viewing = list to i },
+                            onDelete = if (canDeleteMedia) { item -> delete(listOf(item)) } else null,
+                        )
                     } else {
                         PeopleGrid(people, scan.running, onOpen = { openId = it.coverFaceId; kind = Kind.ALL })
                     }
                 }
             }
         }
+    }
+
+    viewing?.let { (list, i) ->
+        PersonViewer(
+            list, i,
+            onDelete = if (canDeleteMedia) { item -> delete(listOf(item)) } else null,
+            onClose = { viewing = null },
+        )
+    }
+
+    if (confirmDeleteAll && open != null) {
+        val who = open.name ?: "this person"
+        AlertDialog(
+            onDismissRequest = { confirmDeleteAll = false },
+            title = { Text("Delete everything with $who?") },
+            text = {
+                Text(
+                    "Deletes all ${counts(open)} in this group from your phone, not just from this list. " +
+                        "Check the group first: anything wrongly matched would be deleted too. " +
+                        "Android will ask you to confirm.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmDeleteAll = false; delete(open.items) }) {
+                    Text("Delete ${open.items.size}", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } },
+        )
     }
 
     if (renaming && open != null) {
@@ -377,7 +452,14 @@ private fun FaceAvatar(faceId: Long, modifier: Modifier) {
 
 /** Everything one person is in, filtered to photos or videos. */
 @Composable
-private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit, onChanged: () -> Unit) {
+private fun PersonMedia(
+    person: Person,
+    kind: Kind,
+    onKind: (Kind) -> Unit,
+    onChanged: () -> Unit,
+    onView: (List<MediaRef>, Int) -> Unit,
+    onDelete: ((MediaRef) -> Unit)?,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var removing by remember { mutableStateOf<MediaRef?>(null) }
@@ -393,7 +475,7 @@ private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit, onCh
         }
     }
     Text(
-        "Wrong one? Long-press it to take it out.",
+        "Wrong one? Long-press it to take it out or delete it.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp),
@@ -407,21 +489,9 @@ private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit, onCh
         items(shown, key = { it.key }) { item ->
             Box(
                 Modifier.aspectRatio(1f).clip(RoundedCornerShape(6.dp)).combinedClickable(
-                    onLongClick = { if (person.faceIn[item.key] != null) removing = item },
+                    onLongClick = { removing = item },
                 ) {
-                    if (item.isVideo) {
-                        // Play this video, with their other videos next.
-                        val videos = person.items.filter { it.isVideo }
-                        context.startActivitySafely(
-                            PlayerActivity.intent(context, videos.map { it.uri }, videos.map { it.name }, videos.indexOf(item)),
-                        )
-                    } else {
-                        context.startActivitySafely(
-                            Intent(Intent.ACTION_VIEW).setDataAndType(item.uri, "image/*")
-                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                            "Couldn't show the photo",
-                        )
-                    }
+                    onView(shown, shown.indexOf(item))
                 },
             ) {
                 VideoThumbnail(item.uri, Modifier.fillMaxSize())
@@ -448,18 +518,34 @@ private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit, onCh
         }
     }
     removing?.let { item ->
+        val what = if (item.isVideo) "video" else "photo"
+        val face = person.faceIn[item.key]
         AlertDialog(
             onDismissRequest = { removing = null },
-            title = { Text("Not ${person.name ?: "this person"}?") },
-            text = { Text("Takes this ${if (item.isVideo) "video" else "photo"} out of their list. The file itself isn't touched.") },
+            title = { Text(item.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            text = {
+                Text(
+                    "Take out: not ${person.name ?: "this person"}; removes this $what from their list only.\n\n" +
+                        "Delete: removes the file from your phone.",
+                )
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    removing = null
-                    val face = person.faceIn[item.key] ?: return@TextButton
-                    scope.launch { FaceIndex.hideFace(context, face); onChanged() }
-                }) { Text("Take out") }
+                Row {
+                    if (onDelete != null) {
+                        TextButton(onClick = { removing = null; onDelete(item) }) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    if (face != null) {
+                        TextButton(onClick = {
+                            removing = null
+                            scope.launch { FaceIndex.hideFace(context, face); onChanged() }
+                        }) { Text("Take out") }
+                    }
+                }
             },
             dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
         )
     }
+
 }

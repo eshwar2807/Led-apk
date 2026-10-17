@@ -220,6 +220,11 @@ object FaceIndex {
      * Names [person]. Giving another group the same name joins the two; a blank name removes it.
      * A merged person can carry several saved faces under one name; renaming replaces them all.
      */
+    /** Forgets photos and videos the user just deleted, so they leave every list at once. */
+    suspend fun forgetMedia(context: Context, keys: Collection<String>) = withContext(Dispatchers.IO) {
+        store(context).remove(keys)
+    }
+
     /** "Not this person": takes [faceId] out of whoever it was grouped with. */
     suspend fun hideFace(context: Context, faceId: Long) = withContext(Dispatchers.IO) {
         store(context).hide(faceId)
@@ -329,15 +334,15 @@ object FaceIndex {
         }
     }
 
-    /** The photo, upright and scaled so its long side is about [PHOTO_SIDE]. */
-    private fun decodePhoto(context: Context, uri: Uri): Bitmap? {
+    /** The photo, upright and scaled so its long side is about [side]. */
+    internal fun decodePhoto(context: Context, uri: Uri, side: Int = PHOTO_SIDE): Bitmap? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 return ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
                     decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                     val long = maxOf(info.size.width, info.size.height)
-                    if (long > PHOTO_SIDE) {
-                        val scale = PHOTO_SIDE.toFloat() / long
+                    if (long > side) {
+                        val scale = side.toFloat() / long
                         decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
                     }
                 }
@@ -351,7 +356,7 @@ object FaceIndex {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= PHOTO_SIDE) sample *= 2
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= side) sample *= 2
             val bmp = resolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
             } ?: return null
