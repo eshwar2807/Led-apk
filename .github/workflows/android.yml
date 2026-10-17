@@ -20,12 +20,20 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default list includes the long-gone "tools" package,
+          # which makes current sdkmanager fail before the build starts.
+          packages: platform-tools
 
       - name: Install SDK packages
         run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
 
       - name: Build APKs
-        run: ./gradlew assembleDebug assembleRelease lintDebug --stacktrace
+        run: ./gradlew assembleDebug assembleRelease lintDebug testDebugUnitTest --stacktrace
+
+      - name: Test update server
+        working-directory: update-server
+        run: go test ./...
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
@@ -34,4 +42,13 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload ReelPlay APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: reelplay-apks
+          path: |
+            player/build/outputs/apk/debug/player-debug.apk
+            player/build/outputs/apk/release/player-release.apk
           if-no-files-found: error

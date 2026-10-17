@@ -1,0 +1,2 @@
+- People: photos and videos now open in the app's own viewer, so swiping only goes through that person's photos and videos (not every photo on the phone). Pinch or double-tap to zoom photos; tap a video to play it.
+- Delete from People: the bin button in the viewer deletes what you're looking at; long-press an item for "Delete" or "Take out"; the ⋮ menu on a person deletes everything in their group. Android asks you to confirm before anything is deleted.

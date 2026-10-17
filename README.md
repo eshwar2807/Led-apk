@@ -6,6 +6,10 @@ wheel itself.
 
 Built for the Pixel 11 Pro family (targets Android API 37, runs on Android 8.0+).
 
+> This repo also holds **ReelPlay**, a separate video player + editor app in the
+> `:player` module. See [`player/README.md`](player/README.md). Its update server lives in
+> [`update-server/`](update-server/README.md).
+
 ## What it does
 
 **Flashlight**

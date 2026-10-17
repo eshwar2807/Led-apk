@@ -1,0 +1,3 @@
+# Each release's APK and manifest are written here by the release workflow at deploy time.
+*
+!.gitignore
