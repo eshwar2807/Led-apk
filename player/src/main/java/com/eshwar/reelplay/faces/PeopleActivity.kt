@@ -16,6 +16,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -232,15 +233,15 @@ private fun PeopleScreen(onClose: () -> Unit) {
                     }
                     if (open == null && (stats.photos + stats.videos) > 0) {
                         Text(
-                            "Looked at ${plural(stats.photos, "photo")} and ${plural(stats.videos, "video")} · " +
-                                "${plural(stats.faces, "face")} found",
+                            "Looked at ${plural(stats.photos, "photo")} (${plural(stats.photoFaces, "face")}) and " +
+                                "${plural(stats.videos, "video")} (${plural(stats.videoFaces, "face")})",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                         )
                     }
                     if (open != null) {
-                        PersonMedia(open, kind, onKind = { kind = it })
+                        PersonMedia(open, kind, onKind = { kind = it }, onChanged = { reload++ })
                     } else {
                         PeopleGrid(people, scan.running, onOpen = { openId = it.coverFaceId; kind = Kind.ALL })
                     }
@@ -376,8 +377,10 @@ private fun FaceAvatar(faceId: Long, modifier: Modifier) {
 
 /** Everything one person is in, filtered to photos or videos. */
 @Composable
-private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit) {
+private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit, onChanged: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var removing by remember { mutableStateOf<MediaRef?>(null) }
     val shown = when (kind) {
         Kind.ALL -> person.items
         Kind.PHOTOS -> person.items.filter { !it.isVideo }
@@ -389,6 +392,12 @@ private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit) {
             FilterChip(selected = k == kind, onClick = { onKind(k) }, label = { Text("${k.label} ($n)") })
         }
     }
+    Text(
+        "Wrong one? Long-press it to take it out.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
     LazyVerticalGrid(
         columns = GridCells.Adaptive(110.dp),
         contentPadding = PaddingValues(8.dp),
@@ -397,7 +406,9 @@ private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit) {
     ) {
         items(shown, key = { it.key }) { item ->
             Box(
-                Modifier.aspectRatio(1f).clip(RoundedCornerShape(6.dp)).clickable {
+                Modifier.aspectRatio(1f).clip(RoundedCornerShape(6.dp)).combinedClickable(
+                    onLongClick = { if (person.faceIn[item.key] != null) removing = item },
+                ) {
                     if (item.isVideo) {
                         // Play this video, with their other videos next.
                         val videos = person.items.filter { it.isVideo }
@@ -435,5 +446,20 @@ private fun PersonMedia(person: Person, kind: Kind, onKind: (Kind) -> Unit) {
                 }
             }
         }
+    }
+    removing?.let { item ->
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("Not ${person.name ?: "this person"}?") },
+            text = { Text("Takes this ${if (item.isVideo) "video" else "photo"} out of their list. The file itself isn't touched.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    removing = null
+                    val face = person.faceIn[item.key] ?: return@TextButton
+                    scope.launch { FaceIndex.hideFace(context, face); onChanged() }
+                }) { Text("Take out") }
+            },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
+        )
     }
 }

@@ -1,1 +1,3 @@
-- People: each photo and video in a person's list now shows the face that matched, in a small circle in the corner, so you can see why it's there.
+- People: stricter about who is the same person, so look-alikes (for example other children of the same age) stay out of each other's groups. If someone gets split in two, give both the same name to join them.
+- Wrong video or photo in someone's list? Long-press it and choose "Take out".
+- The People screen now shows how many faces were found in photos and in videos, and photos that can't be opened are reported instead of silently skipped.

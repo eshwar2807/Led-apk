@@ -29,7 +29,7 @@ class StoredFace(val id: Long, val mediaKey: String, val embedding: FloatArray, 
  * model's embedding plus a small picture of the face for the People screen), and the names the
  * user gave to people. Never leaves the phone; turning the feature off deletes it.
  */
-class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext, NAME, null, 4) {
+class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext, NAME, null, 5) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -43,6 +43,8 @@ class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext,
         db.execSQL("CREATE INDEX IF NOT EXISTS face_media ON face(media)")
         // A name the user gave someone, kept with what that person looks like, so the name
         // finds them again when the groups are worked out afresh.
+        // Faces the user took out of a person ("not this person").
+        db.execSQL("CREATE TABLE IF NOT EXISTS hidden (face INTEGER PRIMARY KEY)")
         db.execSQL("CREATE TABLE IF NOT EXISTS label (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, centre BLOB NOT NULL)")
     }
 
@@ -57,16 +59,28 @@ class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext,
             db.execSQL("DROP TABLE IF EXISTS media")
             onCreate(db)
         }
+        if (oldVersion < 5) onCreate(db) // adds the hidden table
     }
 
-    /** Photos looked at, videos looked at, faces found. */
-    fun stats(): Triple<Int, Int, Int> {
-        var photos = 0; var videos = 0; var faces = 0
+    /** Photos and videos looked at, and faces found in each. */
+    fun stats(): IndexStats {
+        var photos = 0; var videos = 0; var photoFaces = 0; var videoFaces = 0
         readableDatabase.rawQuery("SELECT video, COUNT(*) FROM media GROUP BY video", null).use { c ->
             while (c.moveToNext()) if (c.getInt(0) != 0) videos = c.getInt(1) else photos = c.getInt(1)
         }
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM face", null).use { c -> if (c.moveToFirst()) faces = c.getInt(0) }
-        return Triple(photos, videos, faces)
+        readableDatabase.rawQuery(
+            "SELECT media.video, COUNT(*) FROM face JOIN media ON face.media = media.key GROUP BY media.video", null,
+        ).use { c ->
+            while (c.moveToNext()) if (c.getInt(0) != 0) videoFaces = c.getInt(1) else photoFaces = c.getInt(1)
+        }
+        return IndexStats(photos, videos, photoFaces, videoFaces)
+    }
+
+    /** Takes a face out of whichever person it was grouped into. */
+    fun hide(faceId: Long) {
+        writableDatabase.insertWithOnConflict(
+            "hidden", null, ContentValues().apply { put("face", faceId) }, SQLiteDatabase.CONFLICT_IGNORE,
+        )
     }
 
     /** Every indexed item's key and the DATE_MODIFIED it was indexed at. */
@@ -131,7 +145,7 @@ class FaceStore(context: Context) : SQLiteOpenHelper(context.applicationContext,
 
     fun faces(): List<StoredFace> {
         val out = ArrayList<StoredFace>()
-        readableDatabase.rawQuery("SELECT id, media, emb, quality FROM face", null).use { c ->
+        readableDatabase.rawQuery("SELECT id, media, emb, quality FROM face WHERE id NOT IN (SELECT face FROM hidden)", null).use { c ->
             while (c.moveToNext()) out += StoredFace(c.getLong(0), c.getString(1), FaceMath.fromBytes(c.getBlob(2)), c.getFloat(3))
         }
         return out

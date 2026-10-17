@@ -53,7 +53,7 @@ data class ScanState(
 )
 
 /** What the index holds so far. */
-data class IndexStats(val photos: Int = 0, val videos: Int = 0, val faces: Int = 0)
+data class IndexStats(val photos: Int = 0, val videos: Int = 0, val photoFaces: Int = 0, val videoFaces: Int = 0)
 
 /**
  * Looks through the phone's photos and videos for faces and groups them into people. Opt-in
@@ -165,7 +165,7 @@ object FaceIndex {
 
     suspend fun stats(context: Context): IndexStats = withContext(Dispatchers.IO) {
         if (!Prefs.faceGrouping) return@withContext IndexStats()
-        runCatching { store(context).stats() }.getOrNull()?.let { (p, v, f) -> IndexStats(p, v, f) } ?: IndexStats()
+        runCatching { store(context).stats() }.getOrNull() ?: IndexStats()
     }
 
     /** The library's average face as of the last [people], for matching names to people. */
@@ -220,6 +220,11 @@ object FaceIndex {
      * Names [person]. Giving another group the same name joins the two; a blank name removes it.
      * A merged person can carry several saved faces under one name; renaming replaces them all.
      */
+    /** "Not this person": takes [faceId] out of whoever it was grouped with. */
+    suspend fun hideFace(context: Context, faceId: Long) = withContext(Dispatchers.IO) {
+        store(context).hide(faceId)
+    }
+
     suspend fun rename(context: Context, person: Person, name: String) = withContext(Dispatchers.IO) {
         val db = store(context)
         val labels = db.labels()
@@ -293,7 +298,8 @@ object FaceIndex {
     }
 
     private fun photoFaces(context: Context, engine: FaceEngine, item: MediaRef): List<FoundFace> {
-        val bmp = decodePhoto(context, item.uri) ?: return emptyList()
+        // Not "no faces": an error, so it's reported and tried again next time.
+        val bmp = decodePhoto(context, item.uri) ?: throw java.io.IOException("couldn't open the photo")
         return try { engine.faces(bmp) } finally { bmp.recycle() }
     }
 
@@ -326,8 +332,8 @@ object FaceIndex {
     /** The photo, upright and scaled so its long side is about [PHOTO_SIDE]. */
     private fun decodePhoto(context: Context, uri: Uri): Bitmap? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            return try {
-                ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
+            try {
+                return ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
                     decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                     val long = maxOf(info.size.width, info.size.height)
                     if (long > PHOTO_SIDE) {
@@ -335,8 +341,9 @@ object FaceIndex {
                         decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
                     }
                 }
-            } catch (_: Exception) {
-                null
+            } catch (e: Exception) {
+                // Some phones' decoders choke on some files; the older decoder below may not.
+                Log.w(TAG, "ImageDecoder failed for $uri", e)
             }
         }
         return try {

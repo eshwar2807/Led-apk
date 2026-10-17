@@ -108,14 +108,15 @@ object FaceMath {
      * lighting, video quality), so different people often score 0.3–0.45 against each other,
      * barely below the same person's 0.45–0.6, and fixed raw thresholds lumped everyone into one
      * group. With the shared part taken away, different people land around 0 or below and the
-     * same person stays clearly positive. Tuned on simulated libraries of look-alike people:
-     * groups stayed at least 97% one person; the cost is that a person can come out as two
-     * groups, which naming both the same joins up.
+     * same person stays clearly positive. Checked on 360 real photos of 30 Indian film actors:
+     * at 0.40/0.60 every group was one person (0.30/0.50 let 4–5% in from look-alikes, which
+     * showed up on a phone as other children joining a child's group). The cost is that a
+     * person can come out as two groups, which naming both the same joins up.
      */
-    const val JOIN = 0.30f
+    const val JOIN = 0.40f
 
     /** Two groups whose average (centred) faces are this alike are the same person. */
-    const val MERGE = 0.50f
+    const val MERGE = 0.60f
 
     /**
      * Sorts a whole library's unit [embeddings] into people: groups of indices, biggest first,
